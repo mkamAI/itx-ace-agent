@@ -136,9 +136,9 @@ ALL ${active.length} MAPPINGS TO IMPLEMENT:
 ${mappingLines}
 
 REMINDER: Raw ESQL only. No markdown. No backticks.
-${part === 'part1' ? 'Start with CREATE COMPUTE MODULE. End your output with a comment: // TO BE CONTINUED' : 
-  part === 'part2' ? 'Output ONLY the remaining SET/IF statements plus CopyMessageHeaders procedure and END MODULE — do NOT repeat CREATE COMPUTE MODULE header' : 
-  'Start with CREATE COMPUTE MODULE'}`;
+${part === 'part1' ? 'Output the full CREATE COMPUTE MODULE structure. End with PROPAGATE TO TERMINAL and END MODULE.' :
+  part === 'part2' ? 'Output ONLY indented SET and IF/ELSEIF/END IF statements — NO CREATE COMPUTE MODULE, NO PROPAGATE, NO END MODULE, NO procedures. Just the mapping statements.' :
+  'Start with CREATE COMPUTE MODULE.'}\``;
 }
 
 // ─── Claude API call ──────────────────────────────────────────────────────────
@@ -323,8 +323,9 @@ export default function App() {
       const half = Math.ceil(allActive.length / 2);
       const part1 = allActive.slice(0, half);
       const part2 = allActive.slice(half);
+      const moduleName = mapData.mapName.replace(/[^a-zA-Z0-9_]/g, '_');
 
-      // Pass 1: first half of mappings - generate module header + part 1
+      // Pass 1: generate module header + first half of SET statements only
       const prompt1 = buildPrompt(part1, mapData.mapName, mapData.sourceSchema, 'part1');
       let esql1 = '';
       await callClaude(prompt1, (text) => {
@@ -333,15 +334,25 @@ export default function App() {
         setProgress(Math.min(45, Math.round((text.length / 6000) * 100)));
       });
 
-      // Pass 2: second half - generate remaining mappings + close module
+      // Pass 2: generate remaining SET statements only (no module wrapper)
       const prompt2 = buildPrompt(part2, mapData.mapName, mapData.sourceSchema, 'part2');
       let esql2 = '';
       await callClaude(prompt2, (text) => {
         esql2 = text;
-        setEsql(esql1 + '\n\n' + text);
         setProgress(45 + Math.min(50, Math.round((text.length / 6000) * 100)));
       });
 
+      // Merge part1 + part2: insert part2 SET/IF body before PROPAGATE in part1
+      const marker = "    PROPAGATE TO TERMINAL 'out';";
+      let merged;
+      if (esql1.includes(marker)) {
+        const idx = esql1.indexOf(marker);
+        merged = esql1.slice(0, idx) + "\n" + esql2.trim() + "\n\n" + esql1.slice(idx);
+      } else {
+        merged = esql1 + "\n\n    -- Part 2 mappings:\n" + esql2.trim();
+      }
+
+      setEsql(merged);
       setProgress(100);
       setStage('done');
     } catch (e) {
