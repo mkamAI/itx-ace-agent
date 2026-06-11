@@ -117,7 +117,7 @@ Output ONLY the complete ESQL code, no explanations outside the code. Use -- com
 
 // ─── Claude API call ──────────────────────────────────────────────────────────
 async function callClaude(prompt, onChunk) {
-  const resp = await fetch("https://api.anthropic.com/v1/messages", {
+  const resp = await fetch("/api/claude", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
