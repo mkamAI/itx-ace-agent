@@ -40,53 +40,6 @@ function parseMmsBinary(buffer) {
   return { mapName, sourceSchema, pairs };
 }
 
-// ─── Translate WTX field path to DFDL ESQL path ──────────────────────────────
-function translateToDFDL(raw) {
-  if (!raw || raw === '—') return '';
-  // Extract the meaningful field name from WTX verbose path
-  // WTX format: "FieldName Type › Segment › Loop › Card"
-  // Strip card (last part after last ›), then build DFDL path from segments
-  const parts = raw.split('›').map(p => p.trim());
-  if (parts.length === 1) return raw.trim();
-
-  // Last part is the card (In1, output, etc.) - skip it if it looks like a card
-  const cardPattern = /^(In1|In2|Out|OUT1|output[\w]*|IN1|IN2)$/i;
-  const cleaned = parts[parts.length - 1] && cardPattern.test(parts[parts.length - 1].split(' ')[0])
-    ? parts.slice(0, -1) : parts;
-
-  // Extract just the field name from each segment description (first word before space)
-  const fieldParts = cleaned.map(p => p.split(' ')[0]).filter(Boolean);
-
-  // Identify HL7 segment keywords
-  const segments = ['MSH', 'PID', 'PV1', 'MRG', 'AL1', 'NK1', 'IN1', 'GT1', 'DG1', 'OBX', 'NTE', 'ROL'];
-  const loops = ['PID_LOOP', 'PV1_LOOP', 'MRG_LOOP'];
-
-  let path = 'InputRoot.DFDL.HL7';
-  let foundSegment = false;
-  for (const part of fieldParts.reverse()) {
-    const upper = part.toUpperCase();
-    if (segments.includes(upper)) {
-      if (!foundSegment) {
-        // Check if it needs a loop wrapper
-        if (['PID', 'PV1'].includes(upper)) path = 'InputRoot.DFDL.HL7.PID_LOOP.' + upper;
-        else path = 'InputRoot.DFDL.HL7.' + upper;
-        foundSegment = true;
-      }
-    }
-  }
-
-  // If we found a segment, append the leaf field name
-  const leaf = fieldParts[fieldParts.length - 1];
-  if (foundSegment && leaf && !segments.includes(leaf.toUpperCase())) {
-    path = path + '.' + leaf;
-  } else if (!foundSegment) {
-    // Fallback: use last meaningful part
-    path = 'InputRoot.DFDL.HL7.' + fieldParts.slice(-2).join('.');
-  }
-
-  return path;
-}
-
 function classifyRule(source) {
   if (source === "NONE") return { type: "Not Mapped", expr: "", constant: "", condition: "" };
   if (source.startsWith('"') && source.endsWith('"'))
@@ -123,23 +76,13 @@ function parseWtxFieldPath(raw) {
 function buildPrompt(mappings, mapName, sourceSchema) {
   const mappingLines = mappings
     .map((m, i) => {
-      const tPath = translateToDFDL(m.target).replace('InputRoot', 'OutputRoot');
-      const sPath = m.rule.type === "Direct Map" ? translateToDFDL(m.source) : '';
-      const num = i + 1;
-      if (m.rule.type === "Direct Map") {
-        return "-- " + num + ". " + (m.target.split('›')[0].trim()) + "\n" +
-          "SET " + tPath + " = " + sPath + ";";
-      } else if (m.rule.type === "Constant") {
-        return "-- " + num + ". Constant: " + (m.target.split('›')[0].trim()) + "\n" +
-          "SET " + tPath + " = '" + m.rule.constant + "';";
-      } else {
-        // For complex rules, send full WTX expression to Claude
-        const t = parseWtxFieldPath(m.target);
-        return (num) + ". TARGET: " + t.path + "\n" +
-          "   TYPE: " + m.rule.type +
-          (m.rule.expr ? "\n   EXPRESSION: " + m.rule.expr : "") +
-          (m.rule.condition ? "\n   CONDITION: " + m.rule.condition : "");
-      }
+      const t = parseWtxFieldPath(m.target);
+      const s = m.rule.type === "Direct Map" ? parseWtxFieldPath(m.source) : { path: m.source };
+      return (i + 1) + ". TARGET: " + t.path + "\n" +
+        "   SOURCE: " + s.path + "\n" +
+        "   TYPE: " + m.rule.type +
+        (m.rule.constant ? "\n   CONSTANT: \"" + m.rule.constant + "\"" : "") +
+        (m.rule.expr ? "\n   EXPRESSION: " + m.rule.expr : "");
     })
     .join("\n\n");
 
