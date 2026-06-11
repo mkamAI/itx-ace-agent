@@ -136,7 +136,7 @@ async function callClaude(prompt, onChunk) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       model: "claude-sonnet-4-5",
-      max_tokens: 8000,
+      max_tokens: 16000,
       stream: true,
       messages: [{ role: "user", content: prompt }],
     }),
