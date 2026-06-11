@@ -99,7 +99,11 @@ Use this exact ESQL structure:
 CREATE COMPUTE MODULE <ModuleName>
   CREATE FUNCTION Main() RETURNS BOOLEAN
   BEGIN
+    -- Copy all headers first
     CALL CopyMessageHeaders();
+    -- Initialize output DFDL tree from input
+    SET OutputRoot.DFDL = InputRoot.DFDL;
+    -- Field-level overrides follow:
     -- mappings here
     PROPAGATE TO TERMINAL 'out';
     RETURN FALSE;
@@ -114,14 +118,18 @@ CREATE COMPUTE MODULE <ModuleName>
   END;
 END MODULE;
 
-ESQL path conventions:
-- Input:  InputRoot.MRM.<Segment>.<Field>
-- Output: OutputRoot.MRM.<Segment>.<Field>
-- Direct map: SET OutputRoot.MRM.X = InputRoot.MRM.Y;
-- Constant:   SET OutputRoot.MRM.X = 'VALUE';
-- Conditional: IF <cond> THEN SET OutputRoot.MRM.X = ...; END IF;
-- For Sub-Map calls (F_MAP_xxx): inline as a helper procedure
-- Add -- comment above each mapping explaining the field
+ESQL path conventions (DFDL mode):
+- Input:  InputRoot.DFDL.HL7.<Segment>.<Field>
+- Output: OutputRoot.DFDL.HL7.<Segment>.<Field>
+- Direct map: SET OutputRoot.DFDL.HL7.MSH.SendingFacility = InputRoot.DFDL.HL7.MSH.SendingFacility;
+- Constant:   SET OutputRoot.DFDL.HL7.MSH.SendingFacility.NamespaceID = 'UMHS';
+- Conditional: IF InputRoot.DFDL.HL7.MSH.MessageType.TriggerEvent = 'A18' THEN ... END IF;
+- For Sub-Map calls (F_MAP_xxx): define as a separate CREATE PROCEDURE
+- Add -- comment above each mapping group explaining the field
+- HL7 segment paths: MSH, PID, PV1, MRG, AL1 are direct children of OutputRoot.DFDL.HL7
+- For repeating fields use array notation: OutputRoot.DFDL.HL7.PID.PatientIDInternalID[1]
+- For EXTRACT rules use: SELECT ITEM.FieldName FROM InputRoot.DFDL.HL7.Segment.RepeatField[] AS ITEM WHERE ITEM.IdentifierTypeCode = 'MRN'
+- Initialize output with: SET OutputRoot.DFDL = InputRoot.DFDL; then override specific fields
 
 ALL ${active.length} MAPPINGS TO IMPLEMENT:
 ${mappingLines}
