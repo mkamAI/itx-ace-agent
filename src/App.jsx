@@ -73,77 +73,34 @@ function parseWtxFieldPath(raw) {
 }
 
 // ─── Prompt builder ───────────────────────────────────────────────────────────
-function buildPrompt(mappings, mapName, sourceSchema, part = "full") {
-  // When called with part1/part2, mappings are already filtered active-only
-  const active = part === "full" ? mappings.filter((m) => m.rule.type !== "Not Mapped") : mappings;
-
-  const mappingLines = active
+function buildPrompt(mappings, mapName, sourceSchema) {
+  const mappingLines = mappings
     .map((m, i) => {
       const t = parseWtxFieldPath(m.target);
       const s = m.rule.type === "Direct Map" ? parseWtxFieldPath(m.source) : { path: m.source };
-      return `${i + 1}. TARGET: ${t.path} (card: ${t.card})
-   SOURCE: ${s.path}
-   TYPE: ${m.rule.type}${m.rule.constant ? `\n   CONSTANT: "${m.rule.constant}"` : ""}${m.rule.condition ? `\n   CONDITION: ${m.rule.condition}` : ""}${m.rule.expr ? `\n   EXPRESSION: ${m.rule.expr}` : ""}`;
+      return (i + 1) + ". TARGET: " + t.path + "\n" +
+        "   SOURCE: " + s.path + "\n" +
+        "   TYPE: " + m.rule.type +
+        (m.rule.constant ? "\n   CONSTANT: \"" + m.rule.constant + "\"" : "") +
+        (m.rule.expr ? "\n   EXPRESSION: " + m.rule.expr : "");
     })
     .join("\n\n");
 
-  console.log('buildPrompt called:', { mapName, activeCount: active.length, sample: active.slice(0,2) });
-  return `IMPORTANT: Output raw ESQL code only. Do NOT use markdown, backticks, code fences, or any formatting. Start your response directly with: CREATE COMPUTE MODULE
-
-You are an IBM ACE ESQL developer converting a WTX map to native ACE ESQL.
-Map module name: ${mapName.replace(/[^a-zA-Z0-9_]/g, "_")}
-Source schema: ${sourceSchema || "HL7 ADT 2.5"}
-Total mappings to implement: ${active.length}
-
-Use this exact ESQL structure:
-
-CREATE COMPUTE MODULE <ModuleName>
-  CREATE FUNCTION Main() RETURNS BOOLEAN
-  BEGIN
-    -- Copy all headers first
-    CALL CopyMessageHeaders();
-    -- Initialize output DFDL tree from input
-    SET OutputRoot.DFDL = InputRoot.DFDL;
-    -- Field-level overrides follow:
-    -- mappings here
-    PROPAGATE TO TERMINAL 'out';
-    RETURN FALSE;
-  END;
-  CREATE PROCEDURE CopyMessageHeaders() BEGIN
-    DECLARE I INTEGER 1;
-    DECLARE J INTEGER CARDINALITY(InputRoot.*[]);
-    WHILE I < J DO
-      SET OutputRoot.*[I] = InputRoot.*[I];
-      SET I = I + 1;
-    END WHILE;
-  END;
-END MODULE;
-
-ESQL path conventions (DFDL mode):
-- Input:  InputRoot.DFDL.HL7.<Segment>.<Field>
-- Output: OutputRoot.DFDL.HL7.<Segment>.<Field>
-- Direct map: SET OutputRoot.DFDL.HL7.MSH.SendingFacility = InputRoot.DFDL.HL7.MSH.SendingFacility;
-- Constant:   SET OutputRoot.DFDL.HL7.MSH.SendingFacility.NamespaceID = 'UMHS';
-- Conditional: IF InputRoot.DFDL.HL7.MSH.MessageType.TriggerEvent = 'A18' THEN ... END IF;
-- For Sub-Map calls (F_MAP_xxx): define as a separate CREATE PROCEDURE
-- Add -- comment above each mapping group explaining the field
-- HL7 segment paths: MSH, PID, PV1, MRG, AL1 are direct children of OutputRoot.DFDL.HL7
-- For repeating fields use array notation: OutputRoot.DFDL.HL7.PID.PatientIDInternalID[1]
-- For EXTRACT rules use: SELECT ITEM.FieldName FROM InputRoot.DFDL.HL7.Segment.RepeatField[] AS ITEM WHERE ITEM.IdentifierTypeCode = 'MRN'
-- Initialize output with: SET OutputRoot.DFDL = InputRoot.DFDL; then override specific fields
-
-ALL ${active.length} MAPPINGS TO IMPLEMENT:
-${mappingLines}
-
-REMINDER: Output ONLY indented ESQL SET and IF/ELSEIF/END IF statements.
-- NO CREATE COMPUTE MODULE
-- NO CREATE FUNCTION Main
-- NO PROPAGATE TO TERMINAL
-- NO END MODULE
-- NO CREATE PROCEDURE blocks
-- Just the mapping statements, indented with 4 spaces
-- Start directly with the first -- comment and SET/IF statement\``;
+  return "You are an IBM ACE ESQL developer. Convert these WTX field mappings to ESQL statements.\n\n" +
+    "Source: " + (sourceSchema || "HL7 ADT 2.5") + "\n\n" +
+    "Path rules:\n" +
+    "- Input:  InputRoot.DFDL.HL7.<Segment>.<Field>\n" +
+    "- Output: OutputRoot.DFDL.HL7.<Segment>.<Field>\n" +
+    "- Direct Map: SET OutputRoot.DFDL.HL7.X = InputRoot.DFDL.HL7.Y;\n" +
+    "- Constant:   SET OutputRoot.DFDL.HL7.X = \'VALUE\';\n" +
+    "- Conditional: IF cond THEN SET ...; END IF;\n" +
+    "- Extract MRN: DECLARE v CHARACTER; SET v = (SELECT ITEM.ID FROM InputRoot.DFDL.HL7.Seg.Field[] AS ITEM WHERE ITEM.IdentifierTypeCode = \'MRN\'); IF v IS NOT NULL THEN SET OutputRoot.DFDL.HL7.X = v; END IF;\n" +
+    "- Sub-Map: CALL F_MAP_NAME();\n\n" +
+    "Output ONLY ESQL statements. No CREATE MODULE, no PROPAGATE, no procedures.\n" +
+    "Add a -- comment before each mapping. Never truncate a statement.\n\n" +
+    "MAPPINGS:\n" + mappingLines;
 }
+
 
 // ─── Claude API call ──────────────────────────────────────────────────────────
 async function callClaude(prompt, onChunk) {
@@ -330,14 +287,14 @@ export default function App() {
       const moduleName = mapData.mapName.replace(/[^a-zA-Z0-9_]/g, '_');
 
       // Both passes: ask Claude for ONLY indented SET/IF statements, no module wrapper
-      const prompt1 = buildPrompt(part1, mapData.mapName, mapData.sourceSchema, 'statements');
+      const prompt1 = buildPrompt(part1, mapData.mapName, mapData.sourceSchema);
       let body1 = '';
       await callClaude(prompt1, (text) => {
         body1 = text;
         setProgress(Math.min(45, Math.round((text.length / 4000) * 45)));
       });
 
-      const prompt2 = buildPrompt(part2, mapData.mapName, mapData.sourceSchema, 'statements');
+      const prompt2 = buildPrompt(part2, mapData.mapName, mapData.sourceSchema);
       let body2 = '';
       await callClaude(prompt2, (text) => {
         body2 = text;
