@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef } from "react";
+import JSZip from "jszip";
 
 // ─── WTX .mms binary parser (runs in browser) ────────────────────────────────
 function parseMmsBinary(buffer) {
@@ -31,7 +32,9 @@ function parseMmsBinary(buffer) {
     }
   }
 
-  const mapName = strings.find((s) => s.startsWith("MF_") || s.startsWith("F_MAP_")) || "Unknown Map";
+  // Prefer MF_ names (full map) over F_MAP_ (sub-map functions)
+  const mfNames = strings.filter((s) => s.startsWith("MF_") && s.length > 4);
+  const mapName = mfNames.length > 0 ? mfNames[0] : (strings.find((s) => s.startsWith("F_MAP_")) || 'UnknownMap');
   const sourceSchema = strings.find((s) => s.endsWith(".mtt")) || "";
 
   return { mapName, sourceSchema, pairs };
@@ -83,6 +86,7 @@ function buildPrompt(mappings, mapName, sourceSchema) {
     })
     .join("\n\n");
 
+  console.log('buildPrompt called:', { mapName, activeCount: active.length, sample: active.slice(0,2) });
   return `IMPORTANT: Output raw ESQL code only. Do NOT use markdown, backticks, code fences, or any formatting. Start your response directly with: CREATE COMPUTE MODULE
 
 You are an IBM ACE ESQL developer converting a WTX map to native ACE ESQL.
@@ -703,60 +707,15 @@ function colorizeEsql(code) {
   });
 }
 
-// ─── Minimal browser ZIP parser ──────────────────────────────────────────────
+// ─── JSZip-based ZIP parser ──────────────────────────────────────────────────
 async function parseZip(buffer) {
-  // Find all local file headers (PK\x03\x04) and extract entries
-  const view = new DataView(buffer);
-  const bytes = new Uint8Array(buffer);
+  const zip = await JSZip.loadAsync(buffer);
   const files = {};
-
-  let offset = 0;
-  while (offset < bytes.length - 4) {
-    // Local file header signature
-    if (view.getUint32(offset, true) !== 0x04034b50) {
-      offset++;
-      continue;
+  for (const [name, file] of Object.entries(zip.files)) {
+    if (!file.dir) {
+      const ab = await file.async('arraybuffer');
+      files[name] = ab;
     }
-    const compression = view.getUint16(offset + 8, true);
-    const compressedSize = view.getUint32(offset + 18, true);
-    const fileNameLen = view.getUint16(offset + 26, true);
-    const extraLen = view.getUint16(offset + 28, true);
-    const nameBytes = bytes.slice(offset + 30, offset + 30 + fileNameLen);
-    const name = new TextDecoder().decode(nameBytes);
-    const dataOffset = offset + 30 + fileNameLen + extraLen;
-
-    if (!name.endsWith("/")) {
-      const compressedData = bytes.slice(dataOffset, dataOffset + compressedSize);
-      if (compression === 0) {
-        // Stored (no compression)
-        files[name] = compressedData.buffer;
-      } else if (compression === 8) {
-        // Deflate
-        try {
-          const ds = new DecompressionStream("deflate-raw");
-          const writer = ds.writable.getWriter();
-          writer.write(compressedData);
-          writer.close();
-          const chunks = [];
-          const reader = ds.readable.getReader();
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            chunks.push(value);
-          }
-          const total = chunks.reduce((s, c) => s + c.length, 0);
-          const out = new Uint8Array(total);
-          let pos = 0;
-          for (const c of chunks) { out.set(c, pos); pos += c.length; }
-          files[name] = out.buffer;
-        } catch (e) {
-          // fallback: store compressed if decompression fails
-          files[name] = compressedData.buffer;
-        }
-      }
-    }
-    offset = dataOffset + compressedSize;
-    if (compressedSize === 0) offset = dataOffset + 1;
   }
   return files;
 }
