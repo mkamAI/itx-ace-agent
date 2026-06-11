@@ -73,8 +73,9 @@ function parseWtxFieldPath(raw) {
 }
 
 // ─── Prompt builder ───────────────────────────────────────────────────────────
-function buildPrompt(mappings, mapName, sourceSchema) {
-  const active = mappings.filter((m) => m.rule.type !== "Not Mapped");
+function buildPrompt(mappings, mapName, sourceSchema, part = "full") {
+  // When called with part1/part2, mappings are already filtered active-only
+  const active = part === "full" ? mappings.filter((m) => m.rule.type !== "Not Mapped") : mappings;
 
   const mappingLines = active
     .map((m, i) => {
@@ -134,7 +135,10 @@ ESQL path conventions (DFDL mode):
 ALL ${active.length} MAPPINGS TO IMPLEMENT:
 ${mappingLines}
 
-REMINDER: Raw ESQL only. No markdown. No backticks. Start with CREATE COMPUTE MODULE.`;
+REMINDER: Raw ESQL only. No markdown. No backticks.
+${part === 'part1' ? 'Start with CREATE COMPUTE MODULE. End your output with a comment: // TO BE CONTINUED' : 
+  part === 'part2' ? 'Output ONLY the remaining SET/IF statements plus CopyMessageHeaders procedure and END MODULE — do NOT repeat CREATE COMPUTE MODULE header' : 
+  'Start with CREATE COMPUTE MODULE'}`;
 }
 
 // ─── Claude API call ──────────────────────────────────────────────────────────
@@ -315,15 +319,31 @@ export default function App() {
     setEsql("");
     setProgress(0);
     try {
-      const prompt = buildPrompt(mapData.mappings, mapData.mapName, mapData.sourceSchema);
-      let chars = 0;
-      await callClaude(prompt, (text) => {
+      const allActive = mapData.mappings.filter(m => m.rule.type !== 'Not Mapped');
+      const half = Math.ceil(allActive.length / 2);
+      const part1 = allActive.slice(0, half);
+      const part2 = allActive.slice(half);
+
+      // Pass 1: first half of mappings - generate module header + part 1
+      const prompt1 = buildPrompt(part1, mapData.mapName, mapData.sourceSchema, 'part1');
+      let esql1 = '';
+      await callClaude(prompt1, (text) => {
         setEsql(text);
-        chars = text.length;
-        setProgress(Math.min(95, Math.round((chars / 6000) * 100)));
+        esql1 = text;
+        setProgress(Math.min(45, Math.round((text.length / 6000) * 100)));
       });
+
+      // Pass 2: second half - generate remaining mappings + close module
+      const prompt2 = buildPrompt(part2, mapData.mapName, mapData.sourceSchema, 'part2');
+      let esql2 = '';
+      await callClaude(prompt2, (text) => {
+        esql2 = text;
+        setEsql(esql1 + '\n\n' + text);
+        setProgress(45 + Math.min(50, Math.round((text.length / 6000) * 100)));
+      });
+
       setProgress(100);
-      setStage("done");
+      setStage('done');
     } catch (e) {
       setError(e.message);
       setStage("parsed");
