@@ -135,14 +135,15 @@ async function callClaude(prompt, onChunk) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-5",
       max_tokens: 8000,
       stream: true,
       messages: [{ role: "user", content: prompt }],
     }),
   });
 
-  if (!resp.ok) throw new Error(`API error ${resp.status}`);
+  console.log("API response status:", resp.status, resp.headers.get("content-type"));
+  if (!resp.ok) { const t = await resp.text(); throw new Error(`API error ${resp.status}: ${t}`); }
 
   const reader = resp.body.getReader();
   const decoder = new TextDecoder();
