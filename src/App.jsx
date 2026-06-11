@@ -135,10 +135,14 @@ ESQL path conventions (DFDL mode):
 ALL ${active.length} MAPPINGS TO IMPLEMENT:
 ${mappingLines}
 
-REMINDER: Raw ESQL only. No markdown. No backticks.
-${part === 'part1' ? 'Output the full CREATE COMPUTE MODULE structure. End with PROPAGATE TO TERMINAL and END MODULE.' :
-  part === 'part2' ? 'Output ONLY indented SET and IF/ELSEIF/END IF statements — NO CREATE COMPUTE MODULE, NO PROPAGATE, NO END MODULE, NO procedures. Just the mapping statements.' :
-  'Start with CREATE COMPUTE MODULE.'}\``;
+REMINDER: Output ONLY indented ESQL SET and IF/ELSEIF/END IF statements.
+- NO CREATE COMPUTE MODULE
+- NO CREATE FUNCTION Main
+- NO PROPAGATE TO TERMINAL
+- NO END MODULE
+- NO CREATE PROCEDURE blocks
+- Just the mapping statements, indented with 4 spaces
+- Start directly with the first -- comment and SET/IF statement\``;
 }
 
 // ─── Claude API call ──────────────────────────────────────────────────────────
@@ -325,32 +329,57 @@ export default function App() {
       const part2 = allActive.slice(half);
       const moduleName = mapData.mapName.replace(/[^a-zA-Z0-9_]/g, '_');
 
-      // Pass 1: generate module header + first half of SET statements only
-      const prompt1 = buildPrompt(part1, mapData.mapName, mapData.sourceSchema, 'part1');
-      let esql1 = '';
+      // Both passes: ask Claude for ONLY indented SET/IF statements, no module wrapper
+      const prompt1 = buildPrompt(part1, mapData.mapName, mapData.sourceSchema, 'statements');
+      let body1 = '';
       await callClaude(prompt1, (text) => {
-        setEsql(text);
-        esql1 = text;
-        setProgress(Math.min(45, Math.round((text.length / 6000) * 100)));
+        body1 = text;
+        setProgress(Math.min(45, Math.round((text.length / 4000) * 45)));
       });
 
-      // Pass 2: generate remaining SET statements only (no module wrapper)
-      const prompt2 = buildPrompt(part2, mapData.mapName, mapData.sourceSchema, 'part2');
-      let esql2 = '';
+      const prompt2 = buildPrompt(part2, mapData.mapName, mapData.sourceSchema, 'statements');
+      let body2 = '';
       await callClaude(prompt2, (text) => {
-        esql2 = text;
-        setProgress(45 + Math.min(50, Math.round((text.length / 6000) * 100)));
+        body2 = text;
+        setProgress(45 + Math.min(50, Math.round((text.length / 4000) * 50)));
       });
 
-      // Merge part1 + part2: insert part2 SET/IF body before PROPAGATE in part1
-      const marker = "    PROPAGATE TO TERMINAL 'out';";
-      let merged;
-      if (esql1.includes(marker)) {
-        const idx = esql1.indexOf(marker);
-        merged = esql1.slice(0, idx) + "\n" + esql2.trim() + "\n\n" + esql1.slice(idx);
-      } else {
-        merged = esql1 + "\n\n    -- Part 2 mappings:\n" + esql2.trim();
-      }
+      // Wrap both bodies in a single clean module
+      const merged = `CREATE COMPUTE MODULE ${moduleName}
+  CREATE FUNCTION Main() RETURNS BOOLEAN
+  BEGIN
+    CALL CopyMessageHeaders();
+    SET OutputRoot.DFDL = InputRoot.DFDL;
+
+    -- ── Part 1 Mappings (1-${part1.length}) ─────────────────────────────────
+${body1.trim()}
+
+    -- ── Part 2 Mappings (${part1.length + 1}-${allActive.length}) ──────────────────────────────
+${body2.trim()}
+
+    PROPAGATE TO TERMINAL 'out';
+    RETURN FALSE;
+  END;
+
+  CREATE PROCEDURE CopyMessageHeaders() BEGIN
+    DECLARE I INTEGER 1;
+    DECLARE J INTEGER CARDINALITY(InputRoot.*[]);
+    WHILE I < J DO
+      SET OutputRoot.*[I] = InputRoot.*[I];
+      SET I = I + 1;
+    END WHILE;
+  END;
+
+  CREATE PROCEDURE F_MAP_HL7_MRG() BEGIN
+    SET OutputRoot.DFDL.HL7.MRG = InputRoot.DFDL.HL7.MRG;
+  END;
+
+  CREATE PROCEDURE F_MAP_PID3(IN mrnValue CHARACTER) BEGIN
+    SET OutputRoot.DFDL.HL7.PID.PatientIDInternalID[1].ID = mrnValue;
+    SET OutputRoot.DFDL.HL7.PID.PatientIDInternalID[1].IdentifierTypeCode = 'MRN';
+  END;
+
+END MODULE;`;
 
       setEsql(merged);
       setProgress(100);
