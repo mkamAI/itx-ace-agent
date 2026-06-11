@@ -83,36 +83,46 @@ function buildPrompt(mappings, mapName, sourceSchema) {
     })
     .join("\n\n");
 
-  return `You are an IBM ACE (App Connect Enterprise) integration expert.
+  return `IMPORTANT: Output raw ESQL code only. Do NOT use markdown, backticks, code fences, or any formatting. Start your response directly with: CREATE COMPUTE MODULE
 
-You are migrating a WTX map (IBM Transformation Extender) to native ACE.
-The source message format is HL7 v2.5 (${sourceSchema || "HL7 ADT"}).
-The map name is: ${mapName}
+You are an IBM ACE ESQL developer converting a WTX map to native ACE ESQL.
+Map module name: ${mapName.replace(/[^a-zA-Z0-9_]/g, "_")}
+Source schema: ${sourceSchema || "HL7 ADT 2.5"}
+Total mappings to implement: ${active.length}
 
-Below are the ${active.length} active field-level mapping rules extracted from the WTX .mms binary map.
+Use this exact ESQL structure:
 
-Each rule has:
-- TARGET: the output HL7 field path
-- SOURCE: the input field path or transformation expression
-- TYPE: Direct Map | Constant | Conditional | Extract | Sub-Map Call | Expression
+CREATE COMPUTE MODULE <ModuleName>
+  CREATE FUNCTION Main() RETURNS BOOLEAN
+  BEGIN
+    CALL CopyMessageHeaders();
+    -- mappings here
+    PROPAGATE TO TERMINAL 'out';
+    RETURN FALSE;
+  END;
+  CREATE PROCEDURE CopyMessageHeaders() BEGIN
+    DECLARE I INTEGER 1;
+    DECLARE J INTEGER CARDINALITY(InputRoot.*[]);
+    WHILE I < J DO
+      SET OutputRoot.*[I] = InputRoot.*[I];
+      SET I = I + 1;
+    END WHILE;
+  END;
+END MODULE;
 
-YOUR TASK:
-Generate an IBM ACE ESQL Compute node module that implements ALL of these mappings.
+ESQL path conventions:
+- Input:  InputRoot.MRM.<Segment>.<Field>
+- Output: OutputRoot.MRM.<Segment>.<Field>
+- Direct map: SET OutputRoot.MRM.X = InputRoot.MRM.Y;
+- Constant:   SET OutputRoot.MRM.X = 'VALUE';
+- Conditional: IF <cond> THEN SET OutputRoot.MRM.X = ...; END IF;
+- For Sub-Map calls (F_MAP_xxx): inline as a helper procedure
+- Add -- comment above each mapping explaining the field
 
-Rules to follow:
-1. Use ESQL SET statements for direct maps and constants
-2. Use IF/ELSEIF/END IF for conditionals
-3. Use SUBSTRING, CAST, or helper logic for EXTRACT rules
-4. Call sub-procedures for Sub-Map Call rules (define them as separate ESQL procedures)
-5. Map HL7 field paths to ACE DFDL path syntax: e.g. InputRoot.DFDL.HL7.MSH.SendingFacility
-6. Assume input is in InputRoot.DFDL.HL7 and output goes to OutputRoot.DFDL.HL7
-7. Add a comment above each SET/IF block explaining what it maps
-8. The module name should be ${mapName.replace(/[^a-zA-Z0-9_]/g, "_")}
-
-MAPPINGS:
+ALL ${active.length} MAPPINGS TO IMPLEMENT:
 ${mappingLines}
 
-Output ONLY the complete ESQL code, no explanations outside the code. Use -- comments inside the code.`;
+REMINDER: Raw ESQL only. No markdown. No backticks. Start with CREATE COMPUTE MODULE.`;
 }
 
 // ─── Claude API call ──────────────────────────────────────────────────────────
