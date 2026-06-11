@@ -344,18 +344,41 @@ export default function App() {
         setProgress(45 + Math.min(50, Math.round((text.length / 4000) * 50)));
       });
 
-      // Wrap both bodies in a single clean module
+      // Strip any module boilerplate Claude may have added — extract only SET/IF lines
+      const extractStatements = (esql) => {
+        return esql
+          .split('\n')
+          .filter(line => {
+            const t = line.trim();
+            // Keep only SET, IF, ELSEIF, ELSE, END IF, DECLARE, CALL, -- comments, and blank lines between
+            return t === '' ||
+              t.startsWith('--') ||
+              t.startsWith('SET ') ||
+              t.startsWith('IF ') ||
+              t.startsWith('ELSEIF ') ||
+              t.startsWith('ELSE') ||
+              t.startsWith('END IF') ||
+              t.startsWith('DECLARE ') ||
+              t.startsWith('CALL ');
+          })
+          .join('\n');
+      };
+
+      const stmts1 = extractStatements(body1);
+      const stmts2 = extractStatements(body2);
+
+      // Wrap in a single clean module
       const merged = `CREATE COMPUTE MODULE ${moduleName}
   CREATE FUNCTION Main() RETURNS BOOLEAN
   BEGIN
     CALL CopyMessageHeaders();
     SET OutputRoot.DFDL = InputRoot.DFDL;
 
-    -- ── Part 1 Mappings (1-${part1.length}) ─────────────────────────────────
-${body1.trim()}
+    -- ── Part 1 Mappings (1-${part1.length}) ──────────────────────────────────
+${stmts1.trim()}
 
     -- ── Part 2 Mappings (${part1.length + 1}-${allActive.length}) ──────────────────────────────
-${body2.trim()}
+${stmts2.trim()}
 
     PROPAGATE TO TERMINAL 'out';
     RETURN FALSE;
