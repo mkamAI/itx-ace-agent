@@ -72,6 +72,136 @@ function parseWtxFieldPath(raw) {
   return { path: raw, card: "" };
 }
 
+// ─── Mapping Spec (HTML report w/ client-side Export to Word) ────────────────
+function escapeHtml(str) {
+  return String(str ?? "").replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[c]));
+}
+
+function buildMappingSpecHtml(mapData) {
+  const title = "ITX/WTX Field Mapping Specification";
+  const active = mapData.mappings.filter((m) => m.rule.type !== "Not Mapped");
+  const unmapped = mapData.mappings.filter((m) => m.rule.type === "Not Mapped");
+  const safeTitle = (mapData.mapName || "itx_mapping_spec").replace(/[^A-Za-z0-9_-]+/g, "_") || "itx_mapping_spec";
+
+  const rows = active.map((m, i) => {
+    const t = parseWtxFieldPath(m.target);
+    const s = m.rule.type === "Direct Map" ? parseWtxFieldPath(m.source) : { path: "", card: "" };
+    const cls = i % 2 === 0 ? "even" : "odd";
+    return (
+      '<tr class="' + cls + '">' +
+      "<td>" + escapeHtml(t.path) + "</td>" +
+      "<td>" + escapeHtml(t.card) + "</td>" +
+      "<td>" + escapeHtml(s.path) + "</td>" +
+      "<td>" + escapeHtml(m.rule.type) + "</td>" +
+      "<td>" + escapeHtml(m.rule.expr) + "</td>" +
+      "<td>" + escapeHtml(m.rule.constant) + "</td>" +
+      "<td>" + escapeHtml(m.rule.condition) + "</td>" +
+      "<td></td>" +
+      "</tr>"
+    );
+  }).join("\n");
+
+  const noneRows = unmapped.map((m, i) => {
+    const t = parseWtxFieldPath(m.target);
+    const cls = i % 2 === 0 ? "even" : "odd";
+    return (
+      '<tr class="' + cls + '"><td>' + escapeHtml(t.path) + "</td><td>" + escapeHtml(t.card) + "</td></tr>"
+    );
+  }).join("\n");
+
+  const noneSection = unmapped.length
+    ? (
+      "<h3>Unmapped Target Fields (" + unmapped.length + " &mdash; set to NONE)</h3>" +
+      '<table class="none-table"><thead><tr><th>Target Field</th><th>Target Card</th></tr></thead><tbody>' +
+      noneRows +
+      "</tbody></table>"
+    )
+    : "";
+
+  const css = [
+    "body { font-family: Calibri, Arial, sans-serif; color:#222; margin:0; padding:0 28px 48px; background:#fafafa; }",
+    ".toolbar { position: sticky; top:0; background:#fff; padding:14px 4px; border-bottom:2px solid #1F497D; display:flex; align-items:center; justify-content:space-between; z-index:100; }",
+    ".toolbar h1 { margin:0; font-size:18px; color:#1F497D; }",
+    "#exportBtn { background:#1F497D; color:#fff; border:none; padding:10px 18px; border-radius:4px; font-size:14px; cursor:pointer; }",
+    "#exportBtn:hover { background:#163a63; }",
+    "#exportBtn:disabled { opacity:0.6; cursor:default; }",
+    "h1.doc-title { text-align:center; color:#1F497D; font-size:24px; margin:28px 0 4px; }",
+    ".subtitle { text-align:center; font-style:italic; color:#444; margin-top:0; margin-bottom:28px; }",
+    "h2 { color:#1F497D; border-bottom:1px solid #ccc; padding-bottom:4px; margin-top:36px; }",
+    "h3 { color:#404040; margin-top:22px; font-size:15px; }",
+    "table { border-collapse: collapse; width:100%; margin-bottom:18px; font-size:13px; background:#fff; }",
+    "table, th, td { border:1px solid #999; }",
+    "th { background:#1F497D; color:#fff; padding:6px 8px; text-align:left; font-size:12px; }",
+    "td { padding:6px 8px; vertical-align:top; }",
+    "tr.even td { background:#F0F5FA; }",
+    "tr.odd td { background:#FFFFFF; }",
+    ".summary-table td:first-child { background:#DEEAF1; font-weight:bold; width:280px; }",
+    ".meta p { margin:2px 0; font-size:13px; }",
+    ".meta b { color:#1F497D; }",
+    ".none-table th { background:#808080; }",
+    ".none-table tr.even td { background:#F8F8F8; }",
+    "@media print { .toolbar { display:none; } }",
+  ].join("\n");
+
+  const summaryRows = [
+    ["Map Name", mapData.mapName],
+    ["Source File", mapData.fileName || "—"],
+    ["Source Schema", mapData.sourceSchema || "—"],
+    ["Active Field Mappings", active.length],
+    ["Unmapped Fields (NONE)", unmapped.length],
+    ["Total Rules", mapData.mappings.length],
+  ].map(([k, v]) => "<tr><td>" + escapeHtml(k) + "</td><td>" + escapeHtml(v) + "</td></tr>").join("\n");
+
+  const content =
+    '<h1 class="doc-title">' + escapeHtml(title) + "</h1>" +
+    '<p class="subtitle">IIB/ACE Project Interchange &mdash; WTX/ITX Field Mapping Specification</p>' +
+    "<h2>Summary</h2>" +
+    '<table class="summary-table"><tbody>' + summaryRows + "</tbody></table>" +
+    "<h2>1. " + escapeHtml(mapData.mapName) + "</h2>" +
+    "<h3>Field Mappings (" + active.length + " active rules)</h3>" +
+    "<table><thead><tr>" +
+    "<th>Target Field</th><th>Target Card</th><th>Source Field</th><th>Transform Type</th>" +
+    "<th>Expression / Rule</th><th>Constant</th><th>Condition</th><th>Notes</th>" +
+    "</tr></thead><tbody>" + rows + "</tbody></table>" +
+    noneSection;
+
+  const script = [
+    "function exportToWord() {",
+    "  var btn = document.getElementById('exportBtn');",
+    "  var original = btn.textContent;",
+    "  btn.disabled = true;",
+    "  btn.textContent = 'Exporting…';",
+    "  try {",
+    "    var contentHtml = document.getElementById('export-content').innerHTML;",
+    "    var styleTag = document.querySelector('style').innerHTML;",
+    "    var sourceHTML = '<!DOCTYPE html><html><head><meta charset=\"utf-8\"><style>' + styleTag + '</style></head><body>' + contentHtml + '</body></html>';",
+    "    var converted = htmlDocx.asBlob(sourceHTML);",
+    "    saveAs(converted, '" + safeTitle + ".doc');",
+    "  } catch (e) {",
+    "    alert('Export to Word failed: ' + e.message);",
+    "  } finally {",
+    "    btn.disabled = false;",
+    "    btn.textContent = original;",
+    "  }",
+    "}",
+  ].join("\n");
+
+  return (
+    "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\">" +
+    "<title>" + escapeHtml(title) + "</title>" +
+    "<style>" + css + "</style></head><body>" +
+    '<div class="toolbar"><h1>' + escapeHtml(title) + '</h1>' +
+    '<button id="exportBtn" onclick="exportToWord()">&#8681; Export to Word</button></div>' +
+    '<div id="export-content">' + content + "</div>" +
+    '<script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></sc' + 'ript>' +
+    '<script src="https://cdn.jsdelivr.net/npm/html-docx-js@0.3.1/dist/html-docx.js"></sc' + 'ript>' +
+    "<script>" + script + "</sc" + "ript>" +
+    "</body></html>"
+  );
+}
+
 // ─── Prompt builder ───────────────────────────────────────────────────────────
 function buildPrompt(mappings, mapName, sourceSchema) {
   const mappingLines = mappings
@@ -370,6 +500,14 @@ END MODULE;`;
     }
   };
 
+  const openMappingSpec = () => {
+    if (!mapData) return;
+    const html = buildMappingSpecHtml(mapData);
+    const blob = new Blob([html], { type: "text/html" });
+    const url = URL.createObjectURL(blob);
+    window.open(url, "_blank");
+  };
+
   const copy = () => navigator.clipboard.writeText(esql);
   const download = () => {
     const blob = new Blob([esql], { type: "text/plain" });
@@ -604,20 +742,36 @@ END MODULE;`;
                     </div>
                   </div>
                 ) : (
-                  <button onClick={generate} style={{
-                    width: "100%",
-                    background: `linear-gradient(135deg, ${COLORS.accent}, #a78bfa)`,
-                    border: "none",
-                    borderRadius: 8,
-                    padding: "11px 0",
-                    color: "#fff",
-                    fontWeight: 700,
-                    fontSize: 14,
-                    cursor: "pointer",
-                    letterSpacing: "-0.01em",
-                  }}>
-                    {stage === "done" ? "↺ Regenerate ESQL" : "⚡ Generate ACE ESQL"}
-                  </button>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button onClick={openMappingSpec} title="Open an HTML mapping spec with an Export to Word button" style={{
+                      flex: "0 0 auto",
+                      background: "transparent",
+                      border: `1px solid ${COLORS.border}`,
+                      borderRadius: 8,
+                      padding: "11px 14px",
+                      color: COLORS.text,
+                      fontWeight: 600,
+                      fontSize: 13,
+                      cursor: "pointer",
+                      whiteSpace: "nowrap",
+                    }}>
+                      📄 Mapping Spec
+                    </button>
+                    <button onClick={generate} style={{
+                      flex: 1,
+                      background: `linear-gradient(135deg, ${COLORS.accent}, #a78bfa)`,
+                      border: "none",
+                      borderRadius: 8,
+                      padding: "11px 0",
+                      color: "#fff",
+                      fontWeight: 700,
+                      fontSize: 14,
+                      cursor: "pointer",
+                      letterSpacing: "-0.01em",
+                    }}>
+                      {stage === "done" ? "↺ Regenerate ESQL" : "⚡ Generate ACE ESQL"}
+                    </button>
+                  </div>
                 )}
               </div>
             </>
