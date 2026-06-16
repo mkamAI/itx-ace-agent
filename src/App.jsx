@@ -461,6 +461,12 @@ export default function App() {
             if (/^RETURN\s+(TRUE|FALSE)\s*;?\s*$/i.test(t)) return false;
             if (t === 'BEGIN') return false;
             if (t === 'END;') return false;
+            // Strip stray markdown/header artifacts Claude sometimes prepends
+            // to a part's raw response (e.g. "# ESQL Conversion - ... Mappings"
+            // or fenced code blocks). '#' and '```' are never valid ESQL syntax
+            // at the start of a line, so these are safe to blacklist outright.
+            if (t.startsWith('#')) return false;
+            if (t.startsWith('```')) return false;
             return true;
           })
           .join('\n');
