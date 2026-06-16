@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import JSZip from "jszip";
 
 // ─── WTX .mms binary parser (runs in browser) ────────────────────────────────
@@ -233,18 +233,7 @@ function buildPrompt(mappings, mapName, sourceSchema) {
 
 
 // ─── Claude API call ──────────────────────────────────────────────────────────
-async function callClaude(prompt, onChunk) {
-  const resp = await fetch("/api/claude", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-5",
-      max_tokens: 16000,
-      stream: true,
-      messages: [{ role: "user", content: prompt }],
-    }),
-  });
-
+async function streamClaudeResponse(resp, onChunk) {
   console.log("API response status:", resp.status, resp.headers.get("content-type"));
   if (!resp.ok) { const t = await resp.text(); throw new Error(`API error ${resp.status}: ${t}`); }
 
@@ -280,6 +269,69 @@ async function callClaude(prompt, onChunk) {
   buffer += decoder.decode();
   if (buffer) processLine(buffer);
   return full;
+}
+
+async function callClaude(prompt, onChunk) {
+  const resp = await fetch("/api/claude", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-5",
+      max_tokens: 16000,
+      stream: true,
+      messages: [{ role: "user", content: prompt }],
+    }),
+  });
+  return streamClaudeResponse(resp, onChunk);
+}
+
+// Multi-turn chat call used by the in-app "Ask about this map" chatbot.
+// Keeps a separate system prompt (the serialized mapping data) from the
+// visible conversation history, so each turn re-grounds the model in the
+// currently-loaded map without re-sending it as a fake user message.
+async function callClaudeChat(systemPrompt, messages, onChunk) {
+  const resp = await fetch("/api/claude", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-5",
+      max_tokens: 2000,
+      stream: true,
+      system: systemPrompt,
+      messages,
+    }),
+  });
+  return streamClaudeResponse(resp, onChunk);
+}
+
+// Serializes every mapping in the currently-loaded map into a compact
+// system prompt so the chatbot can answer questions grounded only in this
+// session's data (no persistence, no cross-session/database lookups).
+function buildChatSystemPrompt(mapData) {
+  const lines = mapData.mappings.map((m, i) => {
+    const r = m.rule || {};
+    const parts = [`${i + 1}. target="${m.target}"`, `source="${m.source || ""}"`, `type=${r.type || "Unknown"}`];
+    if (r.expr) parts.push(`expr=${r.expr}`);
+    if (r.constant) parts.push(`constant=${r.constant}`);
+    if (r.condition) parts.push(`condition=${r.condition}`);
+    return parts.join(" | ");
+  }).join("\n");
+
+  return `You are a helpful assistant answering questions about a single IBM WTX/ITX field mapping that is currently loaded in this session. Answer ONLY using the mapping data below — never invent fields, sources, or rules that aren't listed, and never reference any other map or session.
+
+Map name: ${mapData.mapName || "Unknown"}
+Source schema: ${mapData.sourceSchema || "Unknown"}
+File: ${mapData.fileName || "Unknown"}
+Total mappings: ${mapData.mappings.length}
+
+Each line below is one field mapping rule (1-indexed):
+${lines}
+
+When answering:
+- Reference exact target/source field names from the data above.
+- If asked "how many" or "which fields", count or list precisely from the data — don't estimate.
+- If something isn't present in the data, say so plainly instead of guessing.
+- Keep answers concise and specific. Plain text only, no markdown headers.`;
 }
 
 // ─── Components ───────────────────────────────────────────────────────────────
@@ -383,6 +435,45 @@ export default function App() {
   const [filter, setFilter] = useState("all");
   const [progress, setProgress] = useState(0);
   const fileRef = useRef();
+
+  // Chatbot state — scoped to the currently loaded map, current session only.
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
+  const chatScrollRef = useRef(null);
+
+  useEffect(() => {
+    if (chatScrollRef.current) {
+      chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
+    }
+  }, [chatMessages, chatOpen]);
+
+  const sendChatMessage = async () => {
+    const question = chatInput.trim();
+    if (!question || chatLoading || !mapData) return;
+    setChatInput("");
+    const history = [...chatMessages, { role: "user", content: question }];
+    setChatMessages(history);
+    setChatLoading(true);
+    try {
+      const system = buildChatSystemPrompt(mapData);
+      await callClaudeChat(system, history, (text) => {
+        setChatMessages([...history, { role: "assistant", content: text }]);
+      });
+    } catch (e) {
+      setChatMessages([...history, { role: "assistant", content: `⚠ ${e.message}` }]);
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
+  const handleChatKeyDown = (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendChatMessage();
+    }
+  };
 
   const handleFile = useCallback(async (file) => {
     setError("");
@@ -891,6 +982,129 @@ END MODULE;`;
           </div>
         )}
       </div>
+
+      {/* Chatbot — floating toggle + drawer, available once a map is loaded */}
+      {mapData && !chatOpen && (
+        <button
+          onClick={() => setChatOpen(true)}
+          title="Ask about this map"
+          style={{
+            position: "fixed",
+            bottom: 24,
+            right: 24,
+            width: 52,
+            height: 52,
+            borderRadius: "50%",
+            background: `linear-gradient(135deg, ${COLORS.accent}, #a78bfa)`,
+            border: "none",
+            color: "#fff",
+            fontSize: 22,
+            cursor: "pointer",
+            boxShadow: "0 6px 20px rgba(0,0,0,0.35)",
+            zIndex: 200,
+          }}
+        >💬</button>
+      )}
+
+      {mapData && chatOpen && (
+        <div style={{
+          position: "fixed",
+          bottom: 24,
+          right: 24,
+          width: 380,
+          height: 520,
+          background: COLORS.surface,
+          border: `1px solid ${COLORS.border}`,
+          borderRadius: 12,
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
+          boxShadow: "0 12px 32px rgba(0,0,0,0.45)",
+          zIndex: 200,
+        }}>
+          {/* Chat header */}
+          <div style={{
+            padding: "12px 14px",
+            borderBottom: `1px solid ${COLORS.border}`,
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+          }}>
+            <span style={{ fontSize: 16 }}>💬</span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 13, fontWeight: 700 }}>Ask about this map</div>
+              <div style={{ fontSize: 10, color: COLORS.muted }}>{mapData.mapName} · session only</div>
+            </div>
+            <button onClick={() => setChatOpen(false)} style={{
+              background: "none", border: "none", color: COLORS.muted,
+              cursor: "pointer", fontSize: 18, lineHeight: 1,
+            }}>×</button>
+          </div>
+
+          {/* Messages */}
+          <div ref={chatScrollRef} style={{ flex: 1, overflowY: "auto", padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
+            {chatMessages.length === 0 && (
+              <div style={{ color: COLORS.muted, fontSize: 12, lineHeight: 1.6 }}>
+                Ask anything about the {mapData.mappings.length} fields in this map — e.g.
+                "What maps to PID.PatientIDInternalID?" or "Which fields are constants?"
+              </div>
+            )}
+            {chatMessages.map((m, i) => (
+              <div key={i} style={{
+                alignSelf: m.role === "user" ? "flex-end" : "flex-start",
+                maxWidth: "85%",
+                background: m.role === "user" ? COLORS.accentDim + "60" : COLORS.code,
+                border: `1px solid ${m.role === "user" ? COLORS.accentDim : COLORS.border}`,
+                borderRadius: 10,
+                padding: "8px 11px",
+                fontSize: 12.5,
+                lineHeight: 1.55,
+                color: COLORS.text,
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-word",
+              }}>
+                {m.content || (chatLoading && i === chatMessages.length - 1 ? "…" : "")}
+              </div>
+            ))}
+          </div>
+
+          {/* Input */}
+          <div style={{ padding: 10, borderTop: `1px solid ${COLORS.border}`, display: "flex", gap: 8 }}>
+            <textarea
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+              onKeyDown={handleChatKeyDown}
+              placeholder="Ask about a field, source, or rule…"
+              rows={1}
+              style={{
+                flex: 1,
+                resize: "none",
+                background: COLORS.code,
+                border: `1px solid ${COLORS.border}`,
+                borderRadius: 8,
+                padding: "8px 10px",
+                color: COLORS.text,
+                fontSize: 12.5,
+                fontFamily: "inherit",
+              }}
+            />
+            <button
+              onClick={sendChatMessage}
+              disabled={chatLoading || !chatInput.trim()}
+              style={{
+                background: chatLoading || !chatInput.trim() ? COLORS.border : COLORS.accent,
+                border: "none",
+                borderRadius: 8,
+                padding: "0 14px",
+                color: "#fff",
+                fontWeight: 700,
+                fontSize: 13,
+                cursor: chatLoading || !chatInput.trim() ? "default" : "pointer",
+              }}
+            >↑</button>
+          </div>
+        </div>
+      )}
 
       {/* Error bar */}
       {error && (
