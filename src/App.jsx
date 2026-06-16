@@ -251,24 +251,34 @@ async function callClaude(prompt, onChunk) {
   const reader = resp.body.getReader();
   const decoder = new TextDecoder();
   let full = "";
+  let buffer = ""; // holds any partial SSE line split across chunk boundaries
+
+  const processLine = (line) => {
+    if (line.startsWith("data: ")) {
+      try {
+        const json = JSON.parse(line.slice(6));
+        if (json.type === "content_block_delta" && json.delta?.text) {
+          full += json.delta.text;
+          onChunk(full);
+        }
+      } catch {}
+    }
+  };
 
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
-    const chunk = decoder.decode(value);
-    const lines = chunk.split("\n");
-    for (const line of lines) {
-      if (line.startsWith("data: ")) {
-        try {
-          const json = JSON.parse(line.slice(6));
-          if (json.type === "content_block_delta" && json.delta?.text) {
-            full += json.delta.text;
-            onChunk(full);
-          }
-        } catch {}
-      }
-    }
+    // stream:true keeps a trailing partial multi-byte UTF-8 sequence buffered
+    // inside the decoder instead of corrupting it into U+FFFD
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    // the last element may be an incomplete line — hold it for the next read()
+    buffer = lines.pop();
+    for (const line of lines) processLine(line);
   }
+  // flush the decoder tail plus any unterminated final line
+  buffer += decoder.decode();
+  if (buffer) processLine(buffer);
   return full;
 }
 
@@ -431,22 +441,27 @@ export default function App() {
         setProgress(45 + Math.min(50, Math.round((text.length / 4000) * 50)));
       });
 
-      // Strip any module boilerplate Claude may have added — extract only SET/IF lines
+      // Strip any module/function boilerplate Claude may have added despite
+      // instructions not to. A BLACKLIST (not a whitelist) is used here on
+      // purpose: a whitelist of allowed line prefixes drops continuation
+      // lines of any wrapped SET/IF statement, which is what caused
+      // statements to get spliced together and IF/END IF counts to go
+      // unbalanced.
       const extractStatements = (esql) => {
         return esql
           .split('\n')
           .filter(line => {
             const t = line.trim();
-            // Keep only SET, IF, ELSEIF, ELSE, END IF, DECLARE, CALL, -- comments, and blank lines between
-            return t === '' ||
-              t.startsWith('--') ||
-              t.startsWith('SET ') ||
-              t.startsWith('IF ') ||
-              t.startsWith('ELSEIF ') ||
-              t.startsWith('ELSE') ||
-              t.startsWith('END IF') ||
-              t.startsWith('DECLARE ') ||
-              t.startsWith('CALL ');
+            if (t === '') return true;
+            if (/^CREATE\s+(COMPUTE\s+)?MODULE\b/i.test(t)) return false;
+            if (/^CREATE\s+FUNCTION\b/i.test(t)) return false;
+            if (/^CREATE\s+PROCEDURE\b/i.test(t)) return false;
+            if (/^END\s+MODULE\b/i.test(t)) return false;
+            if (/^PROPAGATE\b/i.test(t)) return false;
+            if (/^RETURN\s+(TRUE|FALSE)\s*;?\s*$/i.test(t)) return false;
+            if (t === 'BEGIN') return false;
+            if (t === 'END;') return false;
+            return true;
           })
           .join('\n');
       };
@@ -485,8 +500,8 @@ ${stmts2.trim()}
   END;
 
   CREATE PROCEDURE F_MAP_PID3(IN mrnValue CHARACTER) BEGIN
-    SET OutputRoot.DFDL.HL7.PID.PatientIDInternalID[1].ID = mrnValue;
-    SET OutputRoot.DFDL.HL7.PID.PatientIDInternalID[1].IdentifierTypeCode = 'MRN';
+    SET OutputRoot.DFDL.HL7.PID_LOOP.PID.PatientIDInternalID[1].ID = mrnValue;
+    SET OutputRoot.DFDL.HL7.PID_LOOP.PID.PatientIDInternalID[1].IdentifierTypeCode = 'MRN';
   END;
 
 END MODULE;`;
