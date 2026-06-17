@@ -232,6 +232,286 @@ function buildPrompt(mappings, mapName, sourceSchema) {
 }
 
 
+// ─── ACE Graphical Mapping (.map) generation ─────────────────────────────────
+// Reference sample supplied by the user (MFP_MICHART_PACEART.map) — a real,
+// hand-built .map for the same HL7 v2.7 ADT message family. Used as a
+// structural/style exemplar in the generation prompt below (few-shot), and
+// its boilerplate header/footer (everything outside the per-segment field
+// logic) is reused verbatim so the outer envelope is always well-formed,
+// mirroring how ESQL generation hardcodes its module wrapper rather than
+// asking the model to regenerate boilerplate it might get subtly wrong.
+const SAMPLE_MAP_XML = `<?xml version="1.0" encoding="UTF-8"?><mappingRoot xmlns="http://www.ibm.com/2008/ccl/Mapping" domainID="com.ibm.msl.mapping.xml" domainIDExtension="mb" mainMap="true" targetNamespace="default" version="8.0.5.0" xmlns:map="default">
+    <input path="mbsharedlib://HL7v27ADTSharedLibrary/chapter3.xsd"/>
+    <output path="mbsharedlib://HL7v27ADTSharedLibrary/chapter3.xsd"/>
+    <namespaces>
+        <namespace kind="supplement" prefix="MSH" uri="urn:hl7-org:v2xml"/>
+        <namespace kind="extension" prefix="fn" uri="http://www.w3.org/2005/xpath-functions"/>
+    </namespaces>
+    <generation engine="xquery"/>
+    <mappingDeclaration name="MFP_MICHART_PACEART">
+        <input namespace="urn:hl7-org:v2xml" path="mb:msg(ADT_ALL,assembly,DFDL,Properties)" var="MessageAssembly"/>
+        <output namespace="urn:hl7-org:v2xml" path="mb:msg(ADT_ALL,assembly,DFDL,Properties)" var="MessageAssembly1"/>
+        <move>
+            <input path="$MessageAssembly/Properties"/>
+            <output path="$MessageAssembly1/Properties"/>
+            <override>
+                <assign value="{HL7v27ADTSharedLibrary}">
+                    <output path="$MessageAssembly1/Properties/MessageSet"/>
+                </assign>
+                <assign value="{urn:hl7-org:v2xml}:ADT_ALL">
+                    <output path="$MessageAssembly1/Properties/MessageType"/>
+                </assign>
+            </override>
+        </move>
+        <if>
+            <input path="$MessageAssembly/ADT_ALL" var="ADT_ALL"/>
+            <output path="$MessageAssembly1/ADT_ALL"/>
+            <test lang="xpath">$ADT_ALL/MSH:MSH/MSH:MSH.9.MessageType/MSH:MSG.2 = ('A04', 'A08', 'A28', 'A29', 'A47')&#13;
+and $ADT_ALL/MSH:PV1/MSH:PV1.3.AssignedPatientLocation/MSH:PL.1/MSH:HD.1 = ('AEP','ESA','CES','7E1','7W1','8W','9WWB','9WWM','9WEB','9WEM','10E','10W','11W','12E','12W')</test>
+            <local>
+                <input path="$ADT_ALL/MSH" var="MSH"/>
+                <output path="MSH"/>
+                <move>
+                    <input path="$MSH/MSH.1.FieldSeparator" var="MSH1FieldSeparator"/>
+                    <output path="MSH.1.FieldSeparator"/>
+                </move>
+                <move>
+                    <input path="$MSH/MSH.2.ServiceString" var="MSH2ServiceString"/>
+                    <output path="MSH.2.ServiceString"/>
+                </move>
+                <assign value="MICHART">
+                    <output path="MSH.3.SendingApplication/HD.1"/>
+                </assign>
+                <assign value="MICHART">
+                    <output path="MSH.4.SendingFacility/HD.1"/>
+                </assign>
+                <assign value="WBI">
+                    <output path="MSH.5.ReceivingApplication/HD.1"/>
+                </assign>
+                <assign value="WBI">
+                    <output path="MSH.6.ReceivingFacility/HD.1"/>
+                </assign>
+                <move>
+                    <input path="$MSH/MSH.7.DateTimeOfMessage" var="MSH7DateTimeOfMessage"/>
+                    <output path="MSH.7.DateTimeOfMessage"/>
+                </move>
+                <move>
+                    <input path="$MSH/MSH.9.MessageType/MSG.1" var="MSG1"/>
+                    <output path="MSH.9.MessageType/MSG.1"/>
+                </move>
+                <move>
+                    <input path="$MSH/MSH.9.MessageType/MSG.2" var="MSG2"/>
+                    <output path="MSH.9.MessageType/MSG.2"/>
+                </move>
+                <move>
+                    <input path="$MSH/MSH.10.MessageControlID" var="MSH10MessageControlID"/>
+                    <output path="MSH.10.MessageControlID"/>
+                </move>
+                <move>
+                    <input path="$MSH/MSH.11.ProcessingID/PT.1" var="PT1"/>
+                    <output path="MSH.11.ProcessingID/PT.1"/>
+                </move>
+                <move>
+                    <input path="$MSH/MSH.12.VersionID" var="MSH12VersionID"/>
+                    <output path="MSH.12.VersionID"/>
+                </move>
+            </local>
+            <local>
+                <input path="$ADT_ALL/EVN" var="EVN"/>
+                <output path="EVN"/>
+                <function ref="fn:substring">
+                    <input path="$EVN/EVN.1.EventTypeCode" var="EVN1EventTypeCode"/>
+                    <output path="EVN.1.EventTypeCode"/>
+                    <param name="sourceString" value="$EVN1EventTypeCode"/>
+                    <param name="startLocation" value="1"/>
+                    <param name="length" value="3"/>
+                </function>
+                <move>
+                    <input path="$EVN/EVN.2.RecordedDateTime" var="EVN2RecordedDateTime"/>
+                    <output path="EVN.2.RecordedDateTime"/>
+                </move>
+                <move>
+                    <input path="$EVN/EVN.3.DateTimePlannedEvent" var="EVN3DateTimePlannedEvent"/>
+                    <output path="EVN.3.DateTimePlannedEvent"/>
+                </move>
+                <foreach>
+                    <input path="$EVN/EVN.5.OperatorID[1]" var="EVN5OperatorID"/>
+                    <output path="EVN.5.OperatorID"/>
+                    <move>
+                        <input path="$EVN5OperatorID/XCN.1" var="XCN1"/>
+                        <output path="XCN.1"/>
+                    </move>
+                </foreach>
+                <function ref="fn:substring">
+                    <input path="$EVN/EVN.4.EventReasonCode/CWE.1" var="CWE1"/>
+                    <output path="EVN.4.EventReasonCode/CWE.1"/>
+                    <param name="sourceString" value="$CWE1"/>
+                    <param name="startLocation" value="1"/>
+                    <param name="length" value="4"/>
+                </function>
+            </local>
+            <local>
+                <input path="$ADT_ALL/PID" var="PID"/>
+                <output path="PID"/>
+                <foreach>
+                    <input path="$PID/PID.3.PatientIdentifierList" var="PID3PatientIdentifierList"/>
+                    <output path="PID.3.PatientIdentifierList"/>
+                    <filter lang="xpath">$PID3PatientIdentifierList/MSH:CX.5 = 'MRN'</filter>
+                    <move>
+                        <input path="$PID3PatientIdentifierList/CX.1" var="CX1"/>
+                        <output path="CX.1"/>
+                    </move>
+                </foreach>
+                <move>
+                    <input path="$PID/PID.5.PatientName" var="PID5PatientName"/>
+                    <output path="PID.5.PatientName"/>
+                </move>
+                <move>
+                    <input path="$PID/PID.7.DateTimeOfBirth" var="PID7DateTimeOfBirth"/>
+                    <output path="PID.7.DateTimeOfBirth"/>
+                </move>
+                <move>
+                    <input path="$PID/PID.8.AdministrativeSex" var="PID8AdministrativeSex"/>
+                    <output path="PID.8.AdministrativeSex"/>
+                </move>
+                <move>
+                    <input path="$PID/PID.11.PatientAddress" var="PID11PatientAddress"/>
+                    <output path="PID.11.PatientAddress"/>
+                </move>
+                <move>
+                    <input path="$PID/PID.13.PhoneNumberHome" var="PID13PhoneNumberHome"/>
+                    <output path="PID.13.PhoneNumberHome"/>
+                </move>
+                <move>
+                    <input path="$PID/PID.14.PhoneNumberBusiness" var="PID14PhoneNumberBusiness"/>
+                    <output path="PID.14.PhoneNumberBusiness"/>
+                </move>
+                <move>
+                    <input path="$PID/PID.15.PrimaryLanguage" var="PID15PrimaryLanguage"/>
+                    <output path="PID.15.PrimaryLanguage"/>
+                </move>
+                <move>
+                    <input path="$PID/PID.16.MaritalStatus" var="PID16MaritalStatus"/>
+                    <output path="PID.16.MaritalStatus"/>
+                </move>
+                <move>
+                    <input path="$PID/PID.29.PatientDeathDateandTime" var="PID29PatientDeathDateandTime"/>
+                    <output path="PID.29.PatientDeathDateandTime"/>
+                </move>
+                <move>
+                    <input path="$PID/PID.30.PatientDeathIndicator" var="PID30PatientDeathIndicator"/>
+                    <output path="PID.30.PatientDeathIndicator"/>
+                </move>
+            </local>
+            <local>
+                <input path="$ADT_ALL/PV1" var="PV1"/>
+                <output path="PV1"/>
+                <move>
+                    <input path="$PV1/PV1.2.PatientClass" var="PV12PatientClass"/>
+                    <output path="PV1.2.PatientClass"/>
+                </move>
+                <move>
+                    <input path="$PV1/PV1.3.AssignedPatientLocation" var="PV13AssignedPatientLocation"/>
+                    <output path="PV1.3.AssignedPatientLocation"/>
+                </move>
+            </local>
+            <local>
+                <input path="$ADT_ALL/PV2" var="PV2"/>
+                <output path="PV2"/>
+                <test lang="xpath">$PV2/MSH:PV2.7.VisitUserCode != ''</test>
+                <move>
+                    <input path="$PV2/PV2.7.VisitUserCode" var="PV27VisitUserCode"/>
+                    <output path="PV2.7.VisitUserCode"/>
+                </move>
+            </local>
+            <local>
+                <input path="$ADT_ALL/MRG" var="MRG"/>
+                <output path="MRG"/>
+                <move>
+                    <input path="$MRG/MRG.1.PriorPatientIdentifierList" var="MRG1PriorPatientIdentifierList"/>
+                    <output path="MRG.1.PriorPatientIdentifierList"/>
+                </move>
+            </local>
+        </if>
+    </mappingDeclaration>
+</mappingRoot>`;
+
+const MAP_XML_HEADER = (name) => `<?xml version="1.0" encoding="UTF-8"?><mappingRoot xmlns="http://www.ibm.com/2008/ccl/Mapping" domainID="com.ibm.msl.mapping.xml" domainIDExtension="mb" mainMap="true" targetNamespace="default" version="8.0.5.0" xmlns:map="default">
+    <input path="mbsharedlib://HL7v27ADTSharedLibrary/chapter3.xsd"/>
+    <output path="mbsharedlib://HL7v27ADTSharedLibrary/chapter3.xsd"/>
+    <namespaces>
+        <namespace kind="supplement" prefix="MSH" uri="urn:hl7-org:v2xml"/>
+        <namespace kind="extension" prefix="fn" uri="http://www.w3.org/2005/xpath-functions"/>
+    </namespaces>
+    <generation engine="xquery"/>
+    <mappingDeclaration name="${name}">
+        <input namespace="urn:hl7-org:v2xml" path="mb:msg(ADT_ALL,assembly,DFDL,Properties)" var="MessageAssembly"/>
+        <output namespace="urn:hl7-org:v2xml" path="mb:msg(ADT_ALL,assembly,DFDL,Properties)" var="MessageAssembly1"/>
+        <move>
+            <input path="$MessageAssembly/Properties"/>
+            <output path="$MessageAssembly1/Properties"/>
+            <override>
+                <assign value="{HL7v27ADTSharedLibrary}">
+                    <output path="$MessageAssembly1/Properties/MessageSet"/>
+                </assign>
+                <assign value="{urn:hl7-org:v2xml}:ADT_ALL">
+                    <output path="$MessageAssembly1/Properties/MessageType"/>
+                </assign>
+            </override>
+        </move>
+`;
+
+const MAP_XML_FOOTER = `    </mappingDeclaration>
+</mappingRoot>`;
+
+// Builds the prompt asking Claude to generate only the per-segment field
+// logic (everything that goes between MAP_XML_HEADER and MAP_XML_FOOTER),
+// grouped by HL7 segment, using SAMPLE_MAP_XML as a few-shot style guide.
+function buildMapPrompt(mapData) {
+  const active = mapData.mappings.filter((m) => m.rule.type !== "Not Mapped");
+  const groups = {};
+  active.forEach((m) => {
+    const t = parseWtxFieldPath(m.target);
+    const seg = (t.path.split(".")[0] || "OTHER").toUpperCase();
+    (groups[seg] = groups[seg] || []).push({ ...m, targetPath: t.path, targetCard: t.card });
+  });
+
+  const segmentBlocks = Object.entries(groups).map(([seg, fields]) => {
+    const lines = fields.map((f) => {
+      const parts = [`target="${f.targetPath}"`, `card="${f.targetCard || "1"}"`, `source="${f.source}"`, `type=${f.rule.type}`];
+      if (f.rule.constant) parts.push(`constant=${f.rule.constant}`);
+      if (f.rule.expr) parts.push(`expr=${f.rule.expr}`);
+      if (f.rule.condition) parts.push(`condition=${f.rule.condition}`);
+      return "  - " + parts.join(" | ");
+    }).join("\n");
+    return `Segment ${seg} (${fields.length} fields):\n${lines}`;
+  }).join("\n\n");
+
+  return `You are an IBM ACE/Integration Bus "Graphical Data Mapping" (.map) developer. Generate the field-mapping body of a .map XML document (IBM's mapping editor XQuery-domain format, xmlns="http://www.ibm.com/2008/ccl/Mapping").
+
+Below is a REAL, hand-built reference .map file for a different flow in the same HL7 v2.7 ADT message family — study its exact tag usage, attribute names, variable-naming convention, and namespace prefix usage (the "MSH:" prefix supplements elements that live in the "urn:hl7-org:v2xml" namespace; "fn:" prefixes XPath function extensions):
+
+--- REFERENCE SAMPLE START ---
+${SAMPLE_MAP_XML}
+--- REFERENCE SAMPLE END ---
+
+Now generate the equivalent body for a NEW mapping named "${mapData.mapName}", using these field mappings grouped by HL7 segment:
+
+${segmentBlocks}
+
+Rules for what to emit:
+- Wrap everything in ONE top-level element that declares the ADT_ALL input/output vars, exactly like the reference sample's <if> element does: <input path="$MessageAssembly/ADT_ALL" var="ADT_ALL"/> and <output path="$MessageAssembly1/ADT_ALL"/>. If none of the source fields imply an overall trigger-event/location business condition, use a <local> element instead of <if> (omit the <test> element entirely) — do not invent a fake business condition just to match the sample.
+- Inside that, emit one <local> block per HL7 segment (input path="$ADT_ALL/<SEG>" var="<SEG>", output path="<SEG>"), in the same style as the sample's MSH/EVN/PID/PV1/PV2/MRG locals.
+- For each field of type "Direct Map": emit a <move> with <input>/<output>, using a var name that concatenates the segment + field number + field name exactly like the sample (e.g. PID5PatientName, MSH1FieldSeparator).
+- For each field of type "Constant": emit <assign value="CONSTANT_VALUE"><output path="..."/></assign>, with value set to the constant text itself (no surrounding quotes).
+- For each field of type "Conditional": emit an <if> nested inside the segment's <local>, with a <test lang="xpath"> that best-effort translates the WTX condition text into an XPath boolean expression referencing the segment variable (e.g. $PID/...), and a <move> or <assign> inside for the actual field value.
+- For each field of type "Member Lookup", "Extract", "Expression", or "Sub-Map Call": emit a <move> as a best-effort direct copy, but add an XML comment immediately before it like <!-- TODO: rule type was "Extract" — verify against source expression: <original expression text> -->.
+- If a target field's cardinality looks like a repeating list (card other than "1", or the field name ends in "List"), wrap it in <foreach> like the sample's PID.3.PatientIdentifierList example (only add a <filter lang="xpath"> if the source data implies a specific identifier-type filter — otherwise omit the filter).
+- Never invent fields, segments, or business rules not present in the data above.
+
+Output ONLY the raw XML for that one top-level element (the <if> or <local> block and everything nested inside it) — no markdown code fences, no XML declaration, no surrounding <mappingDeclaration> or <mappingRoot> tags, no commentary before or after.`;
+}
+
 // ─── Claude API call ──────────────────────────────────────────────────────────
 async function streamClaudeResponse(resp, onChunk) {
   console.log("API response status:", resp.status, resp.headers.get("content-type"));
@@ -436,6 +716,13 @@ export default function App() {
   const [progress, setProgress] = useState(0);
   const fileRef = useRef();
 
+  // ACE Graphical Mapping (.map) output — separate from ESQL, its own
+  // generation state, and its own tab in the output panel.
+  const [mapXml, setMapXml] = useState("");
+  const [mapGenerating, setMapGenerating] = useState(false);
+  const [mapProgress, setMapProgress] = useState(0);
+  const [activeOutputTab, setActiveOutputTab] = useState("esql"); // "esql" | "map"
+
   // Chatbot state — scoped to the currently loaded map, current session only.
   const [chatOpen, setChatOpen] = useState(false);
   const [chatMessages, setChatMessages] = useState([]);
@@ -612,6 +899,57 @@ END MODULE;`;
     }
   };
 
+  const generateMapFile = async () => {
+    setMapGenerating(true);
+    setMapXml("");
+    setMapProgress(0);
+    try {
+      const prompt = buildMapPrompt(mapData);
+      let body = "";
+      await callClaude(prompt, (text) => {
+        body = text;
+        setMapProgress(Math.min(90, Math.round((text.length / 3000) * 90)));
+      });
+
+      // Blacklist stray boilerplate Claude may add despite instructions not
+      // to (markdown fences, a duplicate XML declaration, or a re-stated
+      // mappingDeclaration/mappingRoot tag) — blacklist, not whitelist, so
+      // any legitimate nested XML line is kept by default. See
+      // feedback_blacklist_over_whitelist in memory for why this matters.
+      const cleaned = body
+        .split("\n")
+        .filter((line) => {
+          const t = line.trim();
+          if (t.startsWith("```")) return false;
+          if (/^<\?xml/i.test(t)) return false;
+          if (/^<\/?mappingRoot\b/i.test(t)) return false;
+          if (/^<\/?mappingDeclaration\b/i.test(t)) return false;
+          return true;
+        })
+        .join("\n");
+
+      const full = MAP_XML_HEADER(mapData.mapName) + cleaned.trim() + "\n" + MAP_XML_FOOTER;
+
+      // Best-effort well-formedness check — warns but still shows the output,
+      // since a partial/imperfect map is still useful as a starting point.
+      try {
+        const doc = new DOMParser().parseFromString(full, "application/xml");
+        const perr = doc.querySelector("parsererror");
+        if (perr) {
+          setError("Generated .map may not be well-formed XML — review before importing into the ACE Toolkit.");
+        }
+      } catch {}
+
+      setMapXml(full);
+      setMapProgress(100);
+      setActiveOutputTab("map");
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setMapGenerating(false);
+    }
+  };
+
   const openMappingSpec = () => {
     if (!mapData) return;
     const html = buildMappingSpecHtml(mapData);
@@ -620,12 +958,14 @@ END MODULE;`;
     window.open(url, "_blank");
   };
 
-  const copy = () => navigator.clipboard.writeText(esql);
+  const activeOutputContent = activeOutputTab === "map" ? mapXml : esql;
+  const copy = () => navigator.clipboard.writeText(activeOutputContent);
   const download = () => {
-    const blob = new Blob([esql], { type: "text/plain" });
+    const ext = activeOutputTab === "map" ? ".map" : ".esql";
+    const blob = new Blob([activeOutputContent], { type: "text/plain" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = (mapData?.mapName || "mapping") + ".esql";
+    a.download = (mapData?.mapName || "mapping") + ext;
     a.click();
   };
 
@@ -832,7 +1172,7 @@ END MODULE;`;
                 borderTop: `1px solid ${COLORS.border}`,
                 background: COLORS.surface,
               }}>
-                {stage === "generating" ? (
+                {stage === "generating" || mapGenerating ? (
                   <div>
                     <div style={{
                       height: 4,
@@ -843,18 +1183,18 @@ END MODULE;`;
                     }}>
                       <div style={{
                         height: "100%",
-                        width: `${progress}%`,
+                        width: `${mapGenerating ? mapProgress : progress}%`,
                         background: `linear-gradient(90deg, ${COLORS.accent}, #a78bfa)`,
                         transition: "width 0.3s ease",
                         borderRadius: 2,
                       }} />
                     </div>
                     <div style={{ fontSize: 12, color: COLORS.muted, textAlign: "center" }}>
-                      Generating ESQL… {progress}%
+                      {mapGenerating ? `Generating .map… ${mapProgress}%` : `Generating ESQL… ${progress}%`}
                     </div>
                   </div>
                 ) : (
-                  <div style={{ display: "flex", gap: 8 }}>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                     <button onClick={openMappingSpec} title="Open an HTML mapping spec with an Export to Word button" style={{
                       flex: "0 0 auto",
                       background: "transparent",
@@ -880,8 +1220,24 @@ END MODULE;`;
                       fontSize: 14,
                       cursor: "pointer",
                       letterSpacing: "-0.01em",
+                      minWidth: 140,
                     }}>
                       {stage === "done" ? "↺ Regenerate ESQL" : "⚡ Generate ACE ESQL"}
+                    </button>
+                    <button onClick={generateMapFile} title="Generate an IBM ACE Graphical Data Mapping (.map) XML file" style={{
+                      flex: 1,
+                      background: "transparent",
+                      border: `1px solid ${COLORS.accentDim}`,
+                      borderRadius: 8,
+                      padding: "11px 0",
+                      color: COLORS.accent,
+                      fontWeight: 700,
+                      fontSize: 14,
+                      cursor: "pointer",
+                      letterSpacing: "-0.01em",
+                      minWidth: 140,
+                    }}>
+                      {mapXml ? "↺ Regenerate .map" : "🗺 Generate .map"}
                     </button>
                   </div>
                 )}
@@ -907,13 +1263,34 @@ END MODULE;`;
               gap: 10,
               background: COLORS.surface,
             }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: COLORS.muted }}>
-                ESQL OUTPUT
-              </span>
-              {esql && (
+              <div style={{ display: "flex", gap: 4 }}>
+                <button onClick={() => setActiveOutputTab("esql")} style={{
+                  background: activeOutputTab === "esql" ? COLORS.accentDim + "50" : "transparent",
+                  border: `1px solid ${activeOutputTab === "esql" ? COLORS.accent : COLORS.border}`,
+                  color: activeOutputTab === "esql" ? COLORS.accent : COLORS.muted,
+                  borderRadius: 6,
+                  padding: "4px 10px",
+                  fontSize: 11,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  letterSpacing: "0.04em",
+                }}>ESQL</button>
+                <button onClick={() => mapXml && setActiveOutputTab("map")} disabled={!mapXml} style={{
+                  background: activeOutputTab === "map" ? COLORS.accentDim + "50" : "transparent",
+                  border: `1px solid ${activeOutputTab === "map" ? COLORS.accent : COLORS.border}`,
+                  color: !mapXml ? COLORS.muted + "80" : activeOutputTab === "map" ? COLORS.accent : COLORS.muted,
+                  borderRadius: 6,
+                  padding: "4px 10px",
+                  fontSize: 11,
+                  fontWeight: 700,
+                  cursor: mapXml ? "pointer" : "default",
+                  letterSpacing: "0.04em",
+                }}>.MAP</button>
+              </div>
+              {activeOutputContent && (
                 <>
                   <span style={{ fontSize: 11, color: COLORS.muted, marginLeft: 4 }}>
-                    {esql.split("\n").length} lines
+                    {activeOutputContent.split("\n").length} lines
                   </span>
                   <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
                     <button onClick={copy} style={{
@@ -934,7 +1311,7 @@ END MODULE;`;
                       fontSize: 12,
                       cursor: "pointer",
                       fontWeight: 600,
-                    }}>↓ .esql</button>
+                    }}>↓ {activeOutputTab === "map" ? ".map" : ".esql"}</button>
                   </div>
                 </>
               )}
@@ -947,7 +1324,7 @@ END MODULE;`;
               background: COLORS.code,
               padding: "16px 20px",
             }}>
-              {!esql && stage !== "generating" && (
+              {!activeOutputContent && !(stage === "generating" || mapGenerating) && (
                 <div style={{
                   height: "100%",
                   display: "flex",
@@ -957,15 +1334,18 @@ END MODULE;`;
                   gap: 12,
                   color: COLORS.muted,
                 }}>
-                  <div style={{ fontSize: 36 }}>⚡</div>
-                  <div style={{ fontSize: 14 }}>Click "Generate ACE ESQL" to start</div>
+                  <div style={{ fontSize: 36 }}>{activeOutputTab === "map" ? "🗺" : "⚡"}</div>
+                  <div style={{ fontSize: 14 }}>
+                    {activeOutputTab === "map" ? 'Click "Generate .map" to start' : 'Click "Generate ACE ESQL" to start'}
+                  </div>
                   <div style={{ fontSize: 12, textAlign: "center", maxWidth: 340, lineHeight: 1.6 }}>
-                    The AI agent will convert all {activeMappings.length} active WTX rules
-                    into an IBM ACE ESQL DFDL Compute node module
+                    {activeOutputTab === "map"
+                      ? `The AI agent will convert all ${activeMappings.length} active WTX rules into an IBM ACE Graphical Data Mapping (.map) XML file`
+                      : `The AI agent will convert all ${activeMappings.length} active WTX rules into an IBM ACE ESQL DFDL Compute node module`}
                   </div>
                 </div>
               )}
-              {esql && (
+              {activeOutputContent && activeOutputTab === "esql" && (
                 <pre style={{
                   margin: 0,
                   fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
@@ -976,6 +1356,19 @@ END MODULE;`;
                   wordBreak: "break-word",
                 }}>
                   {colorizeEsql(esql)}
+                </pre>
+              )}
+              {activeOutputContent && activeOutputTab === "map" && (
+                <pre style={{
+                  margin: 0,
+                  fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
+                  fontSize: 12,
+                  lineHeight: 1.65,
+                  color: "#e2e8f0",
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-word",
+                }}>
+                  {mapXml}
                 </pre>
               )}
             </div>
