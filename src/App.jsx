@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import JSZip from "jszip";
 
-// ─── WTX .mms binary parser (runs in browser) ────────────────────────────────
+// âââ WTX .mms binary parser (runs in browser) ââââââââââââââââââââââââââââââââ
 function parseMmsBinary(buffer) {
   const bytes = new Uint8Array(buffer);
   const strings = [];
@@ -66,13 +66,13 @@ function parseWtxFieldPath(raw) {
     const path = parts
       .slice(0, -1)
       .map((p) => p.trim())
-      .join(" › ");
+      .join(" âº ");
     return { path, card };
   }
   return { path: raw, card: "" };
 }
 
-// ─── Mapping Spec (HTML report w/ client-side Export to Word) ────────────────
+// âââ Mapping Spec (HTML report w/ client-side Export to Word) ââââââââââââââââ
 function escapeHtml(str) {
   return String(str ?? "").replace(/[&<>"']/g, (c) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
@@ -147,8 +147,8 @@ function buildMappingSpecHtml(mapData) {
 
   const summaryRows = [
     ["Map Name", mapData.mapName],
-    ["Source File", mapData.fileName || "—"],
-    ["Source Schema", mapData.sourceSchema || "—"],
+    ["Source File", mapData.fileName || "â"],
+    ["Source Schema", mapData.sourceSchema || "â"],
     ["Active Field Mappings", active.length],
     ["Unmapped Fields (NONE)", unmapped.length],
     ["Total Rules", mapData.mappings.length],
@@ -172,7 +172,7 @@ function buildMappingSpecHtml(mapData) {
     "  var btn = document.getElementById('exportBtn');",
     "  var original = btn.textContent;",
     "  btn.disabled = true;",
-    "  btn.textContent = 'Exporting…';",
+    "  btn.textContent = 'Exportingâ¦';",
     "  try {",
     "    var contentHtml = document.getElementById('export-content').innerHTML;",
     "    var styleTag = document.querySelector('style').innerHTML;",
@@ -202,7 +202,7 @@ function buildMappingSpecHtml(mapData) {
   );
 }
 
-// ─── Prompt builder ───────────────────────────────────────────────────────────
+// âââ Prompt builder âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 function buildPrompt(mappings, mapName, sourceSchema) {
   const mappingLines = mappings
     .map((m, i) => {
@@ -232,8 +232,8 @@ function buildPrompt(mappings, mapName, sourceSchema) {
 }
 
 
-// ─── ACE Graphical Mapping (.map) generation ─────────────────────────────────
-// Reference sample supplied by the user (MFP_MICHART_PACEART.map) — a real,
+// âââ ACE Graphical Mapping (.map) generation âââââââââââââââââââââââââââââââââ
+// Reference sample supplied by the user (MFP_MICHART_PACEART.map) â a real,
 // hand-built .map for the same HL7 v2.7 ADT message family. Used as a
 // structural/style exemplar in the generation prompt below (few-shot), and
 // its boilerplate header/footer (everything outside the per-segment field
@@ -489,7 +489,7 @@ function buildMapPrompt(mapData) {
 
   return `You are an IBM ACE/Integration Bus "Graphical Data Mapping" (.map) developer. Generate the field-mapping body of a .map XML document (IBM's mapping editor XQuery-domain format, xmlns="http://www.ibm.com/2008/ccl/Mapping").
 
-Below is a REAL, hand-built reference .map file for a different flow in the same HL7 v2.7 ADT message family — study its exact tag usage, attribute names, variable-naming convention, and namespace prefix usage (the "MSH:" prefix supplements elements that live in the "urn:hl7-org:v2xml" namespace; "fn:" prefixes XPath function extensions):
+Below is a REAL, hand-built reference .map file for a different flow in the same HL7 v2.7 ADT message family â study its exact tag usage, attribute names, variable-naming convention, and namespace prefix usage (the "MSH:" prefix supplements elements that live in the "urn:hl7-org:v2xml" namespace; "fn:" prefixes XPath function extensions):
 
 --- REFERENCE SAMPLE START ---
 ${SAMPLE_MAP_XML}
@@ -500,19 +500,19 @@ Now generate the equivalent body for a NEW mapping named "${mapData.mapName}", u
 ${segmentBlocks}
 
 Rules for what to emit:
-- Wrap everything in ONE top-level element that declares the ADT_ALL input/output vars, exactly like the reference sample's <if> element does: <input path="$MessageAssembly/ADT_ALL" var="ADT_ALL"/> and <output path="$MessageAssembly1/ADT_ALL"/>. If none of the source fields imply an overall trigger-event/location business condition, use a <local> element instead of <if> (omit the <test> element entirely) — do not invent a fake business condition just to match the sample.
+- Wrap everything in ONE top-level element that declares the ADT_ALL input/output vars, exactly like the reference sample's <if> element does: <input path="$MessageAssembly/ADT_ALL" var="ADT_ALL"/> and <output path="$MessageAssembly1/ADT_ALL"/>. If none of the source fields imply an overall trigger-event/location business condition, use a <local> element instead of <if> (omit the <test> element entirely) â do not invent a fake business condition just to match the sample.
 - Inside that, emit one <local> block per HL7 segment (input path="$ADT_ALL/<SEG>" var="<SEG>", output path="<SEG>"), in the same style as the sample's MSH/EVN/PID/PV1/PV2/MRG locals.
 - For each field of type "Direct Map": emit a <move> with <input>/<output>, using a var name that concatenates the segment + field number + field name exactly like the sample (e.g. PID5PatientName, MSH1FieldSeparator).
 - For each field of type "Constant": emit <assign value="CONSTANT_VALUE"><output path="..."/></assign>, with value set to the constant text itself (no surrounding quotes).
 - For each field of type "Conditional": emit an <if> nested inside the segment's <local>, with a <test lang="xpath"> that best-effort translates the WTX condition text into an XPath boolean expression referencing the segment variable (e.g. $PID/...), and a <move> or <assign> inside for the actual field value.
-- For each field of type "Member Lookup", "Extract", "Expression", or "Sub-Map Call": emit a <move> as a best-effort direct copy, but add an XML comment immediately before it like <!-- TODO: rule type was "Extract" — verify against source expression: <original expression text> -->.
-- If a target field's cardinality looks like a repeating list (card other than "1", or the field name ends in "List"), wrap it in <foreach> like the sample's PID.3.PatientIdentifierList example (only add a <filter lang="xpath"> if the source data implies a specific identifier-type filter — otherwise omit the filter).
+- For each field of type "Member Lookup", "Extract", "Expression", or "Sub-Map Call": emit a <move> as a best-effort direct copy, but add an XML comment immediately before it like <!-- TODO: rule type was "Extract" â verify against source expression: <original expression text> -->.
+- If a target field's cardinality looks like a repeating list (card other than "1", or the field name ends in "List"), wrap it in <foreach> like the sample's PID.3.PatientIdentifierList example (only add a <filter lang="xpath"> if the source data implies a specific identifier-type filter â otherwise omit the filter).
 - Never invent fields, segments, or business rules not present in the data above.
 
-Output ONLY the raw XML for that one top-level element (the <if> or <local> block and everything nested inside it) — no markdown code fences, no XML declaration, no surrounding <mappingDeclaration> or <mappingRoot> tags, no commentary before or after.`;
+Output ONLY the raw XML for that one top-level element (the <if> or <local> block and everything nested inside it) â no markdown code fences, no XML declaration, no surrounding <mappingDeclaration> or <mappingRoot> tags, no commentary before or after.`;
 }
 
-// ─── Claude API call ──────────────────────────────────────────────────────────
+// âââ Claude API call ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 async function streamClaudeResponse(resp, onChunk) {
   console.log("API response status:", resp.status, resp.headers.get("content-type"));
   if (!resp.ok) { const t = await resp.text(); throw new Error(`API error ${resp.status}: ${t}`); }
@@ -541,7 +541,7 @@ async function streamClaudeResponse(resp, onChunk) {
     // inside the decoder instead of corrupting it into U+FFFD
     buffer += decoder.decode(value, { stream: true });
     const lines = buffer.split("\n");
-    // the last element may be an incomplete line — hold it for the next read()
+    // the last element may be an incomplete line â hold it for the next read()
     buffer = lines.pop();
     for (const line of lines) processLine(line);
   }
@@ -597,7 +597,7 @@ function buildChatSystemPrompt(mapData) {
     return parts.join(" | ");
   }).join("\n");
 
-  return `You are a helpful assistant answering questions about a single IBM WTX/ITX field mapping that is currently loaded in this session. Answer ONLY using the mapping data below — never invent fields, sources, or rules that aren't listed, and never reference any other map or session.
+  return `You are a helpful assistant answering questions about a single IBM WTX/ITX field mapping that is currently loaded in this session. Answer ONLY using the mapping data below â never invent fields, sources, or rules that aren't listed, and never reference any other map or session.
 
 Map name: ${mapData.mapName || "Unknown"}
 Source schema: ${mapData.sourceSchema || "Unknown"}
@@ -609,34 +609,34 @@ ${lines}
 
 When answering:
 - Reference exact target/source field names from the data above.
-- If asked "how many" or "which fields", count or list precisely from the data — don't estimate.
+- If asked "how many" or "which fields", count or list precisely from the data â don't estimate.
 - If something isn't present in the data, say so plainly instead of guessing.
 - Keep answers concise and specific. Plain text only, no markdown headers.`;
 }
 
-// ─── Components ───────────────────────────────────────────────────────────────
+// âââ Components âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 const COLORS = {
-  bg: "#0f1117",
-  surface: "#1a1d27",
-  border: "#2a2d3a",
-  accent: "#6c8ef5",
-  accentDim: "#3d4f8a",
-  green: "#4ade80",
+  bg: "#ffffff",
+  surface: "#f0f4ff",
+  border: "#dbeafe",
+  accent: "#1d4ed8",
+  accentDim: "#bfdbfe",
+  green: "#16a34a",
   amber: "#fbbf24",
-  red: "#f87171",
-  text: "#e2e8f0",
+  red: "#dc2626",
+  text: "#374151",
   muted: "#6b7280",
-  code: "#1e2130",
+  code: "#eff6ff",
 };
 
 const TYPE_COLORS = {
-  "Direct Map":    "#4ade80",
+  "Direct Map":    "#16a34a",
   Constant:        "#fbbf24",
-  Conditional:     "#a78bfa",
-  Extract:         "#38bdf8",
+  Conditional:     "#7c3aed",
+  Extract:         "#0284c7",
   "Member Lookup": "#fb923c",
   "Sub-Map Call":  "#f472b6",
-  Expression:      "#34d399",
+  Expression:      "#059669",
   "Not Mapped":    "#374151",
 };
 
@@ -699,7 +699,7 @@ function MappingRow({ m, idx }) {
         }}>
           <div><span style={{ color: COLORS.muted }}>TARGET: </span><span style={{ color: "#93c5fd" }}>{m.target}</span></div>
           <div><span style={{ color: COLORS.muted }}>SOURCE: </span><span style={{ color: COLORS.green }}>{m.source}</span></div>
-          {m.rule.condition && <div><span style={{ color: COLORS.muted }}>CONDITION: </span><span style={{ color: "#a78bfa" }}>{m.rule.condition}</span></div>}
+          {m.rule.condition && <div><span style={{ color: COLORS.muted }}>CONDITION: </span><span style={{ color: "#7c3aed" }}>{m.rule.condition}</span></div>}
           {m.rule.expr && <div><span style={{ color: COLORS.muted }}>EXPR: </span><span style={{ color: "#fbbf24" }}>{m.rule.expr}</span></div>}
         </div>
       )}
@@ -716,14 +716,14 @@ export default function App() {
   const [progress, setProgress] = useState(0);
   const fileRef = useRef();
 
-  // ACE Graphical Mapping (.map) output — separate from ESQL, its own
+  // ACE Graphical Mapping (.map) output â separate from ESQL, its own
   // generation state, and its own tab in the output panel.
   const [mapXml, setMapXml] = useState("");
   const [mapGenerating, setMapGenerating] = useState(false);
   const [mapProgress, setMapProgress] = useState(0);
   const [activeOutputTab, setActiveOutputTab] = useState("esql"); // "esql" | "map"
 
-  // Chatbot state — scoped to the currently loaded map, current session only.
+  // Chatbot state â scoped to the currently loaded map, current session only.
   const [chatOpen, setChatOpen] = useState(false);
   const [chatMessages, setChatMessages] = useState([]);
   const [chatInput, setChatInput] = useState("");
@@ -749,7 +749,7 @@ export default function App() {
         setChatMessages([...history, { role: "assistant", content: text }]);
       });
     } catch (e) {
-      setChatMessages([...history, { role: "assistant", content: `⚠ ${e.message}` }]);
+      setChatMessages([...history, { role: "assistant", content: `â  ${e.message}` }]);
     } finally {
       setChatLoading(false);
     }
@@ -860,10 +860,10 @@ export default function App() {
     CALL CopyMessageHeaders();
     SET OutputRoot.DFDL = InputRoot.DFDL;
 
-    -- ── Part 1 Mappings (1-${part1.length}) ──────────────────────────────────
+    -- ââ Part 1 Mappings (1-${part1.length}) ââââââââââââââââââââââââââââââââââ
 ${stmts1.trim()}
 
-    -- ── Part 2 Mappings (${part1.length + 1}-${allActive.length}) ──────────────────────────────
+    -- ââ Part 2 Mappings (${part1.length + 1}-${allActive.length}) ââââââââââââââââââââââââââââââ
 ${stmts2.trim()}
 
     PROPAGATE TO TERMINAL 'out';
@@ -913,7 +913,7 @@ END MODULE;`;
 
       // Blacklist stray boilerplate Claude may add despite instructions not
       // to (markdown fences, a duplicate XML declaration, or a re-stated
-      // mappingDeclaration/mappingRoot tag) — blacklist, not whitelist, so
+      // mappingDeclaration/mappingRoot tag) â blacklist, not whitelist, so
       // any legitimate nested XML line is kept by default. See
       // feedback_blacklist_over_whitelist in memory for why this matters.
       const cleaned = body
@@ -930,13 +930,13 @@ END MODULE;`;
 
       const full = MAP_XML_HEADER(mapData.mapName) + cleaned.trim() + "\n" + MAP_XML_FOOTER;
 
-      // Best-effort well-formedness check — warns but still shows the output,
+      // Best-effort well-formedness check â warns but still shows the output,
       // since a partial/imperfect map is still useful as a starting point.
       try {
         const doc = new DOMParser().parseFromString(full, "application/xml");
         const perr = doc.querySelector("parsererror");
         if (perr) {
-          setError("Generated .map may not be well-formed XML — review before importing into the ACE Toolkit.");
+          setError("Generated .map may not be well-formed XML â review before importing into the ACE Toolkit.");
         }
       } catch {}
 
@@ -1008,7 +1008,7 @@ END MODULE;`;
           <text x="36" y="32" fontFamily="'Arial',sans-serif" fontSize="7.5" fontWeight="400" fill="rgba(255,255,255,0.85)" letterSpacing="1.5">SOFTWARE SYSTEMS</text>
         </svg>
         <div style={{ width: '1px', height: '28px', background: 'rgba(255,255,255,0.3)' }}></div>
-        <span style={{ color: 'rgba(255,255,255,0.85)', fontSize: '13px', fontWeight: '400' }}>ITX → ACE Migration Agent</span>
+        <span style={{ color: 'rgba(255,255,255,0.85)', fontSize: '13px', fontWeight: '400' }}>ITX â ACE Migration Agent</span>
       </div>
 
       {/* Header */}
@@ -1022,16 +1022,16 @@ END MODULE;`;
       }}>
         <div style={{
           width: 32, height: 32, borderRadius: 8,
-          background: `linear-gradient(135deg, ${COLORS.accent}, #a78bfa)`,
+          background: `linear-gradient(135deg, ${COLORS.accent}, #7c3aed)`,
           display: "flex", alignItems: "center", justifyContent: "center",
           fontSize: 16,
-        }}>⇄</div>
+        }}>â</div>
         <div>
           <div style={{ fontWeight: 700, fontSize: 15, letterSpacing: "-0.02em" }}>
-            ITX → ACE Migration Agent
+            ITX â ACE Migration Agent
           </div>
           <div style={{ fontSize: 11, color: COLORS.muted }}>
-            WTX map → ESQL DFDL Compute node
+            WTX map â ESQL DFDL Compute node
           </div>
         </div>
         {mapData && (
@@ -1084,7 +1084,7 @@ END MODULE;`;
                   transition: "border-color 0.2s",
                 }}
               >
-                <div style={{ fontSize: 48, marginBottom: 16 }}>📦</div>
+                <div style={{ fontSize: 48, marginBottom: 16 }}>ð¦</div>
                 <div style={{ fontSize: 18, fontWeight: 600, marginBottom: 8 }}>
                   Drop your IIB/ACE Interchange ZIP
                 </div>
@@ -1207,13 +1207,13 @@ END MODULE;`;
                       <div style={{
                         height: "100%",
                         width: `${mapGenerating ? mapProgress : progress}%`,
-                        background: `linear-gradient(90deg, ${COLORS.accent}, #a78bfa)`,
+                        background: `linear-gradient(90deg, ${COLORS.accent}, #7c3aed)`,
                         transition: "width 0.3s ease",
                         borderRadius: 2,
                       }} />
                     </div>
                     <div style={{ fontSize: 12, color: COLORS.muted, textAlign: "center" }}>
-                      {mapGenerating ? `Generating .map… ${mapProgress}%` : `Generating ESQL… ${progress}%`}
+                      {mapGenerating ? `Generating .mapâ¦ ${mapProgress}%` : `Generating ESQLâ¦ ${progress}%`}
                     </div>
                   </div>
                 ) : (
@@ -1230,11 +1230,11 @@ END MODULE;`;
                       cursor: "pointer",
                       whiteSpace: "nowrap",
                     }}>
-                      📄 Mapping Spec
+                      ð Mapping Spec
                     </button>
                     <button onClick={generate} style={{
                       flex: 1,
-                      background: `linear-gradient(135deg, ${COLORS.accent}, #a78bfa)`,
+                      background: `linear-gradient(135deg, ${COLORS.accent}, #7c3aed)`,
                       border: "none",
                       borderRadius: 8,
                       padding: "11px 0",
@@ -1245,7 +1245,7 @@ END MODULE;`;
                       letterSpacing: "-0.01em",
                       minWidth: 140,
                     }}>
-                      {stage === "done" ? "↺ Regenerate ESQL" : "⚡ Generate ACE ESQL"}
+                      {stage === "done" ? "âº Regenerate ESQL" : "â¡ Generate ACE ESQL"}
                     </button>
                     <button onClick={generateMapFile} title="Generate an IBM ACE Graphical Data Mapping (.map) XML file" style={{
                       flex: 1,
@@ -1260,7 +1260,7 @@ END MODULE;`;
                       letterSpacing: "-0.01em",
                       minWidth: 140,
                     }}>
-                      {mapXml ? "↺ Regenerate .map" : "🗺 Generate .map"}
+                      {mapXml ? "âº Regenerate .map" : "ðº Generate .map"}
                     </button>
                   </div>
                 )}
@@ -1269,7 +1269,7 @@ END MODULE;`;
           )}
         </div>
 
-        {/* Right panel — ESQL output */}
+        {/* Right panel â ESQL output */}
         {stage !== "upload" && (
           <div style={{
             flex: 1,
@@ -1324,7 +1324,7 @@ END MODULE;`;
                       padding: "5px 12px",
                       fontSize: 12,
                       cursor: "pointer",
-                    }}>⎘ Copy</button>
+                    }}>â Copy</button>
                     <button onClick={download} style={{
                       background: COLORS.accent,
                       border: "none",
@@ -1334,7 +1334,7 @@ END MODULE;`;
                       fontSize: 12,
                       cursor: "pointer",
                       fontWeight: 600,
-                    }}>↓ {activeOutputTab === "map" ? ".map" : ".esql"}</button>
+                    }}>â {activeOutputTab === "map" ? ".map" : ".esql"}</button>
                   </div>
                 </>
               )}
@@ -1357,7 +1357,7 @@ END MODULE;`;
                   gap: 12,
                   color: COLORS.muted,
                 }}>
-                  <div style={{ fontSize: 36 }}>{activeOutputTab === "map" ? "🗺" : "⚡"}</div>
+                  <div style={{ fontSize: 36 }}>{activeOutputTab === "map" ? "ðº" : "â¡"}</div>
                   <div style={{ fontSize: 14 }}>
                     {activeOutputTab === "map" ? 'Click "Generate .map" to start' : 'Click "Generate ACE ESQL" to start'}
                   </div>
@@ -1374,7 +1374,7 @@ END MODULE;`;
                   fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
                   fontSize: 12,
                   lineHeight: 1.65,
-                  color: "#e2e8f0",
+                  color: "#374151",
                   whiteSpace: "pre-wrap",
                   wordBreak: "break-word",
                 }}>
@@ -1387,7 +1387,7 @@ END MODULE;`;
                   fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
                   fontSize: 12,
                   lineHeight: 1.65,
-                  color: "#e2e8f0",
+                  color: "#374151",
                   whiteSpace: "pre-wrap",
                   wordBreak: "break-word",
                 }}>
@@ -1399,7 +1399,7 @@ END MODULE;`;
         )}
       </div>
 
-      {/* Chatbot — floating toggle + drawer, available once a map is loaded */}
+      {/* Chatbot â floating toggle + drawer, available once a map is loaded */}
       {mapData && !chatOpen && (
         <button
           onClick={() => setChatOpen(true)}
@@ -1411,7 +1411,7 @@ END MODULE;`;
             width: 52,
             height: 52,
             borderRadius: "50%",
-            background: `linear-gradient(135deg, ${COLORS.accent}, #a78bfa)`,
+            background: `linear-gradient(135deg, ${COLORS.accent}, #7c3aed)`,
             border: "none",
             color: "#fff",
             fontSize: 22,
@@ -1419,7 +1419,7 @@ END MODULE;`;
             boxShadow: "0 6px 20px rgba(0,0,0,0.35)",
             zIndex: 200,
           }}
-        >💬</button>
+        >ð¬</button>
       )}
 
       {mapData && chatOpen && (
@@ -1446,22 +1446,22 @@ END MODULE;`;
             alignItems: "center",
             gap: 8,
           }}>
-            <span style={{ fontSize: 16 }}>💬</span>
+            <span style={{ fontSize: 16 }}>ð¬</span>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 13, fontWeight: 700 }}>Ask about this map</div>
-              <div style={{ fontSize: 10, color: COLORS.muted }}>{mapData.mapName} · session only</div>
+              <div style={{ fontSize: 10, color: COLORS.muted }}>{mapData.mapName} Â· session only</div>
             </div>
             <button onClick={() => setChatOpen(false)} style={{
               background: "none", border: "none", color: COLORS.muted,
               cursor: "pointer", fontSize: 18, lineHeight: 1,
-            }}>×</button>
+            }}>Ã</button>
           </div>
 
           {/* Messages */}
           <div ref={chatScrollRef} style={{ flex: 1, overflowY: "auto", padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
             {chatMessages.length === 0 && (
               <div style={{ color: COLORS.muted, fontSize: 12, lineHeight: 1.6 }}>
-                Ask anything about the {mapData.mappings.length} fields in this map — e.g.
+                Ask anything about the {mapData.mappings.length} fields in this map â e.g.
                 "What maps to PID.PatientIDInternalID?" or "Which fields are constants?"
               </div>
             )}
@@ -1479,7 +1479,7 @@ END MODULE;`;
                 whiteSpace: "pre-wrap",
                 wordBreak: "break-word",
               }}>
-                {m.content || (chatLoading && i === chatMessages.length - 1 ? "…" : "")}
+                {m.content || (chatLoading && i === chatMessages.length - 1 ? "â¦" : "")}
               </div>
             ))}
           </div>
@@ -1490,7 +1490,7 @@ END MODULE;`;
               value={chatInput}
               onChange={(e) => setChatInput(e.target.value)}
               onKeyDown={handleChatKeyDown}
-              placeholder="Ask about a field, source, or rule…"
+              placeholder="Ask about a field, source, or ruleâ¦"
               rows={1}
               style={{
                 flex: 1,
@@ -1517,7 +1517,7 @@ END MODULE;`;
                 fontSize: 13,
                 cursor: chatLoading || !chatInput.trim() ? "default" : "pointer",
               }}
-            >↑</button>
+            >â</button>
           </div>
         </div>
       )}
@@ -1534,34 +1534,34 @@ END MODULE;`;
           alignItems: "center",
           gap: 10,
         }}>
-          <span>⚠</span>
+          <span>â </span>
           <span>{error}</span>
           <button onClick={() => setError("")} style={{
             marginLeft: "auto", background: "none", border: "none",
             color: "#fca5a5", cursor: "pointer", fontSize: 16,
-          }}>×</button>
+          }}>Ã</button>
         </div>
       )}
     </div>
   );
 }
 
-// ─── Minimal syntax highlight ────────────────────────────────────────────────
+// âââ Minimal syntax highlight ââââââââââââââââââââââââââââââââââââââââââââââââ
 function colorizeEsql(code) {
   const lines = code.split("\n");
   return lines.map((line, i) => {
-    let color = "#e2e8f0";
+    let color = "#374151";
     if (/^\s*--/.test(line)) color = "#6b7280";
-    else if (/^\s*(CREATE|MODULE|PROCEDURE|FUNCTION|BEGIN|END|DECLARE)\b/i.test(line)) color = "#a78bfa";
-    else if (/^\s*(SET|IF|ELSEIF|ELSE|THEN|RETURN|CALL)\b/i.test(line)) color = "#6c8ef5";
-    else if (/InputRoot|OutputRoot/.test(line)) color = "#4ade80";
+    else if (/^\s*(CREATE|MODULE|PROCEDURE|FUNCTION|BEGIN|END|DECLARE)\b/i.test(line)) color = "#7c3aed";
+    else if (/^\s*(SET|IF|ELSEIF|ELSE|THEN|RETURN|CALL)\b/i.test(line)) color = "#1d4ed8";
+    else if (/InputRoot|OutputRoot/.test(line)) color = "#16a34a";
     return (
       <span key={i} style={{ color, display: "block" }}>{line + "\n"}</span>
     );
   });
 }
 
-// ─── JSZip-based ZIP parser ──────────────────────────────────────────────────
+// âââ JSZip-based ZIP parser ââââââââââââââââââââââââââââââââââââââââââââââââââ
 async function parseZip(buffer) {
   const zip = await JSZip.loadAsync(buffer);
   const files = {};
