@@ -991,22 +991,24 @@ END MODULE;`;
       {/* Miracle Logo Banner */}
       <div style={{
         background: 'linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%)',
-        padding: '12px 32px',
+        padding: '10px 28px',
         display: 'flex',
         alignItems: 'center',
-        gap: '16px',
+        gap: '20px',
         flexShrink: 0,
         boxShadow: '0 2px 8px rgba(29,78,216,0.3)',
       }}>
-        <div style={{
-          width: '34px', height: '34px', borderRadius: '8px',
-          background: '#ffffff', display: 'flex', alignItems: 'center',
-          justifyContent: 'center', fontWeight: '800', fontSize: '17px',
-          color: '#1d4ed8',
-        }}>M</div>
-        <span style={{ color: '#ffffff', fontSize: '20px', fontWeight: '700', letterSpacing: '-0.3px' }}>miracle</span>
-        <div style={{ width: '1px', height: '22px', background: 'rgba(255,255,255,0.3)' }}></div>
-        <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: '13px' }}>ITX → ACE Migration Agent</span>
+        {/* Miracle Software Systems SVG Logo */}
+        <svg width="160" height="36" viewBox="0 0 160 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+          {/* Stylized M icon */}
+          <polygon points="2,28 2,8 10,8 16,20 22,8 30,8 30,28 24,28 24,18 16,30 8,18 8,28" fill="white"/>
+          {/* MIRACLE text */}
+          <text x="36" y="22" fontFamily="'Arial Black','Arial',sans-serif" fontSize="16" fontWeight="900" fill="white" letterSpacing="1">MIRACLE</text>
+          {/* SOFTWARE SYSTEMS text */}
+          <text x="36" y="32" fontFamily="'Arial',sans-serif" fontSize="7.5" fontWeight="400" fill="rgba(255,255,255,0.85)" letterSpacing="1.5">SOFTWARE SYSTEMS</text>
+        </svg>
+        <div style={{ width: '1px', height: '28px', background: 'rgba(255,255,255,0.3)' }}></div>
+        <span style={{ color: 'rgba(255,255,255,0.85)', fontSize: '13px', fontWeight: '400' }}>ITX → ACE Migration Agent</span>
       </div>
 
       {/* Header */}
